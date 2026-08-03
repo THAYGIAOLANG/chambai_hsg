@@ -64,50 +64,43 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Lấy API Key & Mật khẩu Quản trị
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
 TEACHER_PASSWORD = st.secrets.get("TEACHER_PASSWORD", "hoang123")
 
 # ==========================================
-# 2. KHỞI TẠO CƠ SỞ DỮ LIỆU TẠM
+# 2. XỬ LÝ LƯU TRỮ DỮ LIỆU BỀN VỮNG (PERSISTENT DATA)
 # ==========================================
+PROBLEMS_FILE = "data_problems.json"
+ACCOUNTS_FILE = "data_accounts.json"
 
-if 'user_role' not in st.session_state:
-    st.session_state['user_role'] = None
-if 'logged_student' not in st.session_state:
-    st.session_state['logged_student'] = None
+def load_data(file_path, default_data):
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return default_data
+    return default_data
 
-if 'active_teacher_tab' not in st.session_state:
-    st.session_state['active_teacher_tab'] = 0
+def save_data(file_path, data):
+    try:
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        st.error(f"Lỗi khi lưu dữ liệu: {e}")
 
-if 'student_accounts' not in st.session_state:
-    st.session_state['student_accounts'] = {
-        "hocsinh01": "123456",
-        "hocsinh02": "123456"
-    }
-
-if 'submissions_db' not in st.session_state:
-    st.session_state['submissions_db'] = {}
-
-if 'current_student_problem_id' not in st.session_state:
-    st.session_state['current_student_problem_id'] = 0
-
-if 'last_grade_result' not in st.session_state:
-    st.session_state['last_grade_result'] = None
-
-if 'problems_db' not in st.session_state:
-    st.session_state['problems_db'] = [
-        {
-            "id": 0,
-            "ten_bai": "TỔNG DÃY CON CỰC ĐẠI (MAXSUB)",
-            "io_mode": "Đọc/Ghi Tệp (.INP / .OUT)",
-            "file_inp": "MAXSUB.INP",
-            "file_out": "MAXSUB.OUT",
-            "de_bai": "Cho mảng $A$ gồm $N$ số nguyên. Hãy tìm dãy con liên tục có tổng lớn nhất.\n\n**Giới hạn:**\n* $N \\le 10^5$\n* $|A_i| \\le 10^9$",
-            "sample_in_1": "5\n2 -3 4 -1 2", "sample_out_1": "5",
-            "sample_in_2": "3\n-1 -2 -3", "sample_out_2": "-1",
-            "sample_in_3": "6\n1 2 3 -2 5 -1", "sample_out_3": "9",
-            "code_mau": """#include <iostream>
+DEFAULT_PROBLEMS = [
+    {
+        "id": 0,
+        "ten_bai": "TỔNG DÃY CON CỰC ĐẠI (MAXSUB)",
+        "io_mode": "Đọc/Ghi Tệp (.INP / .OUT)",
+        "file_inp": "MAXSUB.INP",
+        "file_out": "MAXSUB.OUT",
+        "de_bai": "Cho mảng $A$ gồm $N$ số nguyên. Hãy tìm dãy con liên tục có tổng lớn nhất.\n\n**Giới hạn:**\n* $N \\le 10^5$\n* $|A_i| \\le 10^9$",
+        "sample_in_1": "5\n2 -3 4 -1 2", "sample_out_1": "5",
+        "sample_in_2": "3\n-1 -2 -3", "sample_out_2": "-1",
+        "sample_in_3": "6\n1 2 3 -2 5 -1", "sample_out_3": "9",
+        "code_mau": """#include <iostream>
 using namespace std;
 int main() {
     freopen("MAXSUB.INP", "r", stdin);
@@ -123,9 +116,32 @@ int main() {
     cout << max_s;
     return 0;
 }"""
-        }
-    ]
+    }
+]
 
+DEFAULT_ACCOUNTS = {
+    "hocsinh01": "123456",
+    "hocsinh02": "123456"
+}
+
+if 'problems_db' not in st.session_state:
+    st.session_state['problems_db'] = load_data(PROBLEMS_FILE, DEFAULT_PROBLEMS)
+
+if 'student_accounts' not in st.session_state:
+    st.session_state['student_accounts'] = load_data(ACCOUNTS_FILE, DEFAULT_ACCOUNTS)
+
+if 'user_role' not in st.session_state:
+    st.session_state['user_role'] = None
+if 'logged_student' not in st.session_state:
+    st.session_state['logged_student'] = None
+if 'active_teacher_tab' not in st.session_state:
+    st.session_state['active_teacher_tab'] = 0
+if 'submissions_db' not in st.session_state:
+    st.session_state['submissions_db'] = {}
+if 'current_student_problem_id' not in st.session_state:
+    st.session_state['current_student_problem_id'] = 0
+if 'last_grade_result' not in st.session_state:
+    st.session_state['last_grade_result'] = None
 if 'selected_problem_id' not in st.session_state:
     st.session_state['selected_problem_id'] = 0
 
@@ -366,7 +382,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             
                             client = genai.Client(api_key=GEMINI_API_KEY)
                             
-                            # 🌟 PROMPT SƯ PHẠM TIN HỌC MỚI: CHÍNH XÁC VỚI CONSTRAINTS & CÓ HƯỚNG DẪN TƯ DUY
                             prompt = f"""
                             Bạn là một Giáo viên dạy Bồi dưỡng Học sinh giỏi Tin học tâm huyết, Am hiểu thuật toán và chuẩn sư phạm.
                             Hãy đánh giá bài làm C++ của học sinh dựa trên ĐỀ BÀI và GIỚI HẠN (Constraints) dưới đây.
@@ -384,7 +399,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             1. BẮT BUỘC ĐỌC KỸ GIỚI HẠN (Constraints) TRONG ĐỀ BÀI (Ví dụ: N <= 100, N <= 10^5...).
                             2. Nếu Đề bài cho N nhỏ (ví dụ N <= 100), thuật toán O(N) hoặc O(N^2) chạy mượt mà VẪN ĐẠT ĐIỂM TỐI ĐA (10.0/10 - AC 100%). TUYỆT ĐỐI KHÔNG BÁO TLE KHI N TRONG ĐỀ YÊU CẦU NHỎ!
                             3. Nếu thuật toán đúng logic nhưng chỉ tối ưu cho N nhỏ, hãy giải thích nhẹ nhàng: "Thuật toán đúng logic. Đạt điểm tối đa cho bài toán hiện tại. Nếu N lớn hơn (ví dụ N >= 10^6) mới cần tối ưu".
-                            4. Gợi ý cải tiến phải mang tính SƯ PHẠM: Giải thích Ý TƯỞNG CỐT LÕI (Ví dụ: Vì sao ước số đi thành cặp, vì sao dùng mảng đánh dấu...) giúp học sinh hiểu bản chất bài toán.
+                            4. Gợi ý cải tiến phải mang tính SƯ PHẠM: Giải thích Ý TƯỞNG CỐT LÕI giúp học sinh hiểu bản chất bài toán.
 
                             Hãy trả về JSON duy nhất theo định dạng:
                             ```json
@@ -481,7 +496,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                         st.markdown(sub['nhan_xet_ai'])
 
 # ==========================================
-# 6. GIAO DIỆN GIÁO VIÊN (CÓ TÍNH NĂNG THẨM ĐỊNH AI)
+# 6. GIAO DIỆN GIÁO VIÊN (CÓ LƯU TRỮ VĨNH VIỄN & QUẢN LÝ TK NÂNG CẤP)
 # ==========================================
 else:
     if st.session_state['user_role'] != 'teacher':
@@ -529,6 +544,7 @@ else:
                         if st.button(f"🗑️ XOÁ BÀI", key=f"del_btn_{idx}", type="secondary"):
                             removed_title = st.session_state['problems_db'][idx]['ten_bai']
                             st.session_state['problems_db'].pop(idx)
+                            save_data(PROBLEMS_FILE, st.session_state['problems_db']) # Lưu file ngay
                             st.session_state['selected_problem_id'] = -1
                             st.toast(f"🗑️ Đã xóa bài tập: {removed_title}!", icon="🎉")
                             st.rerun()
@@ -662,7 +678,7 @@ else:
                             st.markdown(check_res.text)
 
             with col_save:
-                if st.button("💾 LƯU BÀI TẬP VÀO HỆ THỐNG", type="primary", use_container_width=True):
+                if st.button("💾 LƯU BÀI TẬP VÀO HỆ THỐNG (LƯU VĨNH VIỄN)", type="primary", use_container_width=True):
                     if not ten_bai_val.strip():
                         st.error("⚠️ Vui lòng nhập Tên Bài Tập trước khi lưu!")
                     else:
@@ -686,30 +702,61 @@ else:
                             st.session_state['problems_db'][edit_id] = new_data
                             st.toast(f"🎉 ĐÃ CẬP NHẬT THÀNH CÔNG BÀI TẬP: {ten_bai_val}!", icon="✅")
                         
+                        # 🌟 LƯU VÀO TỆP JSON BỀN VỮNG
+                        save_data(PROBLEMS_FILE, st.session_state['problems_db'])
+                        
                         st.session_state['active_teacher_tab'] = 0
                         st.session_state['selected_problem_id'] = -1
                         st.rerun()
 
+        # 🌟 TAB 3 NÂNG CẤP: QUẢN LÝ TÀI KHOẢN ĐẦY ĐỦ (SỬA, RESET MẬT KHẨU, XÓA)
         else:
-            st.markdown("### 👤 Tạo & Quản Lý Tài Khoản Học Sinh Nội Bộ")
+            st.markdown("### 👤 Quản Lý Tài Khoản Học Sinh Nội Bộ")
             
-            col_new_acc, col_acc_list = st.columns([1, 1])
+            col_add_acc, col_edit_acc = st.columns([1, 1])
             
-            with col_new_acc:
-                st.caption("➕ Tạo tài khoản học sinh mới:")
-                new_username = st.text_input("Tên đăng nhập mới (ví dụ: levanan):")
-                new_userpass = st.text_input("Mật khẩu cấp cho học sinh:", type="password")
-                
-                if st.button("🔑 CẤP TÀI KHOẢN", type="primary"):
-                    if new_username and new_userpass:
-                        st.session_state['student_accounts'][new_username] = new_userpass
-                        st.toast(f"✅ Đã cấp tài khoản cho học sinh: {new_username}!", icon="🔑")
-                        st.rerun()
+            with col_add_acc:
+                st.caption("➕ **Tạo Tài Khoản Học Sinh Mới:**")
+                new_u = st.text_input("Tên đăng nhập mới:", key="add_user")
+                new_p = st.text_input("Mật khẩu mới:", type="password", key="add_pass")
+                if st.button("🔑 CẤP TÀI KHOẢN MỚI", type="primary", use_container_width=True):
+                    if new_u and new_p:
+                        if new_u in st.session_state['student_accounts']:
+                            st.error("Tên đăng nhập này đã tồn tại!")
+                        else:
+                            st.session_state['student_accounts'][new_u] = new_p
+                            save_data(ACCOUNTS_FILE, st.session_state['student_accounts'])
+                            st.toast(f"✅ Đã cấp tài khoản cho: {new_u}!", icon="🎉")
+                            st.rerun()
                     else:
-                        st.error("Vui lòng điền đủ Tên đăng nhập và Mật khẩu!")
+                        st.error("Vui lòng điền đủ Username và Password!")
 
-            with col_acc_list:
-                st.caption("📋 Danh sách tài khoản học sinh đã cấp:")
-                acc_data = [{"STT": idx+1, "Tên Đăng Nhập": u, "Mật Khẩu": p} 
-                            for idx, (u, p) in enumerate(st.session_state['student_accounts'].items())]
-                st.dataframe(acc_data, use_container_width=True)
+            with col_edit_acc:
+                st.caption("🛠️ **Chỉnh Sửa / Cấp Lại Mật Khẩu:**")
+                acc_list = list(st.session_state['student_accounts'].keys())
+                if len(acc_list) > 0:
+                    selected_acc = st.selectbox("Chọn tài khoản cần sửa:", acc_list)
+                    current_pass = st.session_state['student_accounts'][selected_acc]
+                    
+                    mod_pass = st.text_input(f"Mật khẩu mới cho ({selected_acc}):", value=current_pass)
+                    
+                    c_btn1, c_btn2 = st.columns(2)
+                    with c_btn1:
+                        if st.button("💾 ĐỔI MẬT KHẨU", use_container_width=True):
+                            st.session_state['student_accounts'][selected_acc] = mod_pass
+                            save_data(ACCOUNTS_FILE, st.session_state['student_accounts'])
+                            st.toast(f"✅ Đã đổi mật khẩu cho {selected_acc}!", icon="🔑")
+                            st.rerun()
+                    
+                    with c_btn2:
+                        if st.button(f"🗑️ XÓA {selected_acc}", type="secondary", use_container_width=True):
+                            del st.session_state['student_accounts'][selected_acc]
+                            save_data(ACCOUNTS_FILE, st.session_state['student_accounts'])
+                            st.toast(f"🗑️ Đã xóa tài khoản {selected_acc}!", icon="🎉")
+                            st.rerun()
+
+            st.markdown("---")
+            st.caption("📋 **Danh sách tất cả tài khoản học sinh đã cấp:**")
+            acc_data = [{"STT": idx+1, "Tên Đăng Nhập": u, "Mật Khẩu": p} 
+                        for idx, (u, p) in enumerate(st.session_state['student_accounts'].items())]
+            st.dataframe(acc_data, use_container_width=True)

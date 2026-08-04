@@ -10,6 +10,7 @@ import unicodedata
 from pypdf import PdfReader
 import docx
 from google import genai
+from google.genai import types
 
 # ==========================================
 # 1. CẤU HÌNH TRANG WEB & TÙY CHỈNH CSS
@@ -385,7 +386,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                 elif not GEMINI_API_KEY:
                     st.error("⚠️ Hệ thống chưa cấu hình `GEMINI_API_KEY`!")
                 else:
-                    with st.spinner("⏳ Đang tiến hành biên dịch C++ và kiểm tra qua các Subtask..."):
+                    with st.spinner("⏳ Đang tiến hành biên dịch C++ và phân tích thuật toán..."):
                         with open("student.cpp", "w", encoding="utf-8") as f:
                             f.write(final_code_to_grade)
                         
@@ -395,9 +396,8 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             st.error("❌ **LỖI BIÊN DỊCH (Compile Error):**")
                             st.code(compile_err, language="bash")
                         else:
-                            N_test = 1000
-                            test_input = f"{N_test}\n" + " ".join(str(random.randint(-1000, 1000)) for _ in range(N_test))
-                            status, output, exec_time = run_testcase("student.exec", test_input)
+                            # Chạy thử 1 sample input
+                            status, output, exec_time = run_testcase("student.exec", prob.get("sample_in_1", ""))
                             
                             client = genai.Client(api_key=GEMINI_API_KEY)
                             
@@ -407,37 +407,48 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
 
                             [ĐỀ BÀI]: {prob['de_bai']}
                             [MÃ NGUỒN HỌC SINH]: {final_code_to_grade}
-                            [KẾT QUẢ CHẠY THỰC TẾ]: Trạng thái={status}, Thời gian={exec_time:.2f}ms
 
-                            BẮT BUỘC TRẢ VỀ DẠNG JSON CHÍNH XÁC VỚI ĐÚNG CẤU TRÚC MARKDOWN TRONG `feedback_markdown` NHƯ SAU:
-
-                            ```json
+                            BẮT BUỘC TRẢ VỀ DẠNG JSON DUY NHẤT CHÍNH XÁC VỚI CẤU TRÚC DƯỚI ĐÂY (KHÔNG KÈM BLOCK CẤU TRÚC NGOÀI JSON):
                             {{
-                                "score": <Điểm số từ 0.0 đến 10.0>,
-                                "feedback_markdown": "### 📌 1. ĐÁNH GIÁ CHUNG\\n* **Điểm số:** <Số điểm>/10.0\\n* **Trạng thái:** <AC / RTE TLE WA>\\n* **Nhận xét nhanh:** <Lời 1-2 câu gàng gọn khuyên>\\n\\n### 🔍 2. PHÂN TÍCH ĐỘ PHỨC TẠP THUẬT TOÁN\\n* **Thời gian (Time Complexity):** $O(...)$\\n* **Bộ nhớ (Space Complexity):** $O(...)$\\n* **Đánh giá giới hạn:** <Cho AC N biết bài có giới hay hạn không trong trọn vẹn với đạt đề>\\n\\n### 🛠️ 3. NHẬN XÉT CHI TIẾT BÀI LÀM\\n* **Ưu điểm:** <Nêu biến, code... cách cấu trong trúc tên tốt điểm đặt>\\n* **Hạn chế / Lỗi chưa tối ưu:** <Nêu chưa chết code các còn dòng hay tối ưu>\\n\\n### 💡 4. HƯỚNG TỐI ƯU CỐT LÕI (GỢI Ý SƯ PHẠM)\\n* **Ý tưởng cải tiến:** <Giải bản chất thuật thích toán tối ưu>\\n* **Kỹ thuật khuyến nghị:** <Nêu / cấu dùng dữ liệu nên thuật toán trúc>"
+                                "score": <Số_điểm_float_từ_0.0_đến_10.0>,
+                                "status_str": "<AC / TLE / WA / RTE>",
+                                "feedback_markdown": "### 📌 1. ĐÁNH GIÁ CHUNG\\n* **Điểm số:** <Số điểm>/10.0\\n* **Trạng thái:** <AC / TLE / WA / RTE>\\n* **Nhận xét nhanh:** <Lời nhận xét ngắn gọn>\\n\\n### 🔍 2. PHÂN TÍCH ĐỘ PHỨC TẠP THUẬT TOÁN\\n* **Thời gian (Time Complexity):** $O(...)$\\n* **Bộ nhớ (Space Complexity):** $O(...)$\\n* **Đánh giá giới hạn:** <Nhận xét độ phù hợp với giới hạn N>\\n\\n### 🛠️ 3. NHẬN XÉT CHI TIẾT BÀI LÀM\\n* **Ưu điểm:** <Nêu ưu điểm code>\\n* **Hạn chế / Lỗi chưa tối ưu:** <Nêu các dòng chưa tốt>\\n\\n### 💡 4. HƯỚNG TỐI ƯU CỐT LÕI (GỢI Ý SƯ PHẠM)\\n* **Ý tưởng cải tiến:** <Giải thích bản chất thuật toán tối ưu>\\n* **Kỹ thuật khuyến nghị:** <Thuật toán/Cấu trúc dữ liệu khuyến nghị>"
                             }}
-                            ```
                             """
                             
                             clean_prompt = sanitize_text(prompt_text)
 
+                            # 🌟 CẤU HÌNH KHÓA TEMPERATURE = 0.0 ĐỂ CHẤM 100 LẦN CÙNG 1 ĐIỂM
                             response = client.models.generate_content(
                                 model="gemini-2.5-flash",
-                                contents=clean_prompt
+                                contents=clean_prompt,
+                                config=types.GenerateContentConfig(
+                                    temperature=0.0,
+                                    response_mime_type="application/json"
+                                )
                             )
                             
+                            calculated_score = 0.0
+                            status_display = status
+                            feedback_text = ""
+
                             try:
+                                res_json = json.loads(response.text)
+                                calculated_score = float(res_json.get("score", 0.0))
+                                status_display = res_json.get("status_str", "AC" if calculated_score == 10.0 else "WA")
+                                feedback_text = res_json.get("feedback_markdown", "")
+                            except Exception:
                                 json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
                                 if json_match:
-                                    res_json = json.loads(json_match.group(0))
-                                    calculated_score = float(res_json.get("score", 0.0))
-                                    feedback_text = res_json.get("feedback_markdown", response.text)
+                                    try:
+                                        res_json = json.loads(json_match.group(0))
+                                        calculated_score = float(res_json.get("score", 0.0))
+                                        status_display = res_json.get("status_str", "AC" if calculated_score == 10.0 else "WA")
+                                        feedback_text = res_json.get("feedback_markdown", "")
+                                    except:
+                                        feedback_text = response.text
                                 else:
-                                    calculated_score = 0.0 if "0/10" in response.text or "0.0/10" in response.text else 10.0
                                     feedback_text = response.text
-                            except Exception:
-                                calculated_score = 0.0 if "0/10" in response.text or "0.0/10" in response.text else 10.0
-                                feedback_text = response.text
 
                             if student_id not in st.session_state['submissions_db']:
                                 st.session_state['submissions_db'][student_id] = []
@@ -445,7 +456,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             sub_record = {
                                 "ten_bai": prob['ten_bai'],
                                 "diem": calculated_score,
-                                "trang_thai": status if calculated_score > 0 else "Wrong Answer",
+                                "trang_thai": status_display,
                                 "thoi_gian_chay": f"{exec_time:.2f} ms",
                                 "thoi_gian_nop": time.strftime("%H:%M:%S %d/%m/%Y"),
                                 "nhan_xet_ai": feedback_text,
@@ -454,7 +465,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             st.session_state['submissions_db'][student_id].append(sub_record)
                             st.session_state['last_grade_result'] = sub_record
                             
-                            # 🌟 LƯU LỊCH SỬ NỘP BÀI LÊN FIREBASE CLOUD REALTIME
                             db_save("submissions", st.session_state['submissions_db'])
 
             if st.session_state['last_grade_result'] is not None:
@@ -473,7 +483,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                         st.rerun()
 
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Trạng Thái Testcase", res['trang_thai'], delta="Thành công" if res['diem'] > 0 else "Sai thuật toán", delta_color="normal")
+                m1.metric("Trạng Thái AI Chấm", res['trang_thai'], delta="Thành công" if res['diem'] > 0 else "Cần sửa", delta_color="normal")
                 m2.metric("Thời Gian Chạy Thực Tế", res['thoi_gian_chay'], delta="Tối ưu")
                 m3.metric("Điểm Số Đạt Được", f"{res['diem']:.1f}/10")
                 
@@ -745,7 +755,7 @@ else:
                             st.toast(f"✅ Đã cấp tài khoản cho: {clean_u}!", icon="🎉")
                             st.rerun()
                     else:
-                        st.error("Vui lòng điền đủ Username and Password!")
+                        st.error("Vui lòng điền đủ Username và Password!")
 
             with col_edit_acc:
                 st.caption("🛠️ **Chỉnh Sửa / Cấp Lại Mật Khẩu:**")
@@ -777,31 +787,25 @@ else:
                         for idx, (u, p) in enumerate(st.session_state['student_accounts'].items())]
             st.dataframe(acc_data, use_container_width=True)
 
-        # 🌟 TAB MỚI: BẢNG THEO DÕI THỐNG KÊ CHI TIẾT THEO TỪNG BÀI TẬP
         else:
             st.markdown("### 📊 Thống Kê & Báo Cáo Kết Quả Nộp Bài Theo Bài Tập")
             
             if len(st.session_state['problems_db']) == 0:
                 st.info("Chưa có bài tập nào để thống kê.")
             else:
-                # BƯỚC 1: CHỌN BÀI TẬP CẦN SOI
                 prob_titles = [p['ten_bai'] for p in st.session_state['problems_db']]
                 selected_prob_title = st.selectbox("🎯 Chọn Bài Tập Cần Theo Dõi Kết Quả:", prob_titles)
                 
                 st.markdown("---")
                 
-                # BƯỚC 2: TRÍCH XUẤT LỊCH SỬ DỮ LIỆU CỦA BÀI TẬP ĐÓ
                 all_subs = db_get("submissions", st.session_state['submissions_db'])
                 st.session_state['submissions_db'] = all_subs
                 
-                # Tổng hợp danh sách học sinh đã từng nộp bài này
                 student_summary = []
                 
                 for st_id, sub_list in all_subs.items():
-                    # Lọc các lần nộp thuộc bài tập đang chọn
                     prob_subs = [s for s in sub_list if s.get('ten_bai') == selected_prob_title]
                     if len(prob_subs) > 0:
-                        # Tìm bài có điểm cao nhất
                         best_sub = max(prob_subs, key=lambda x: x.get('diem', 0.0))
                         student_summary.append({
                             "Học Sinh": st_id,
@@ -819,7 +823,6 @@ else:
                 else:
                     st.success(f"📈 **Có {len(student_summary)} học sinh đã tham gia làm bài này:**")
                     
-                    # Hiện bảng tổng quan
                     table_display = [{
                         "STT": i+1,
                         "Tên Học Sinh": s["Học Sinh"],
@@ -834,11 +837,9 @@ else:
                     st.markdown("---")
                     st.markdown("### 🔍 Xem Chi Tiết Mã Nguồn C++ & Lịch Sử Của Từng Học Sinh")
                     
-                    # Chọn học sinh cụ thể để soi code
                     st_names = [s["Học Sinh"] for s in student_summary]
                     chosen_st = st.selectbox("👤 Chọn Học Sinh Cần Kiểm Tra Code:", st_names)
                     
-                    # Lấy thông tin học sinh được chọn
                     st_info = next(s for s in student_summary if s["Học Sinh"] == chosen_st)
                     
                     col_code_view, col_detail_view = st.columns([1, 1])

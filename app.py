@@ -141,14 +141,15 @@ if 'problems_db' not in st.session_state:
 if 'student_accounts' not in st.session_state:
     st.session_state['student_accounts'] = db_get("accounts", DEFAULT_ACCOUNTS)
 
+if 'submissions_db' not in st.session_state:
+    st.session_state['submissions_db'] = db_get("submissions", {})
+
 if 'user_role' not in st.session_state:
     st.session_state['user_role'] = None
 if 'logged_student' not in st.session_state:
     st.session_state['logged_student'] = None
 if 'active_teacher_tab' not in st.session_state:
     st.session_state['active_teacher_tab'] = 0
-if 'submissions_db' not in st.session_state:
-    st.session_state['submissions_db'] = {}
 if 'current_student_problem_id' not in st.session_state:
     st.session_state['current_student_problem_id'] = 0
 if 'last_grade_result' not in st.session_state:
@@ -400,7 +401,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             
                             client = genai.Client(api_key=GEMINI_API_KEY)
                             
-                            # 🌟 PROMPT RÀNG BUỘC CẤU TRÚC NHẬN XẾT CỐ ĐỊNH 100%
                             prompt_text = f"""
                             Bạn là một Giáo viên dạy Bồi dưỡng Học sinh giỏi Tin học THCS/THPT chuyên nghiệp.
                             Hãy đánh giá bài làm C++ của học sinh dựa trên ĐỀ BÀI và MÃ NGUỒN.
@@ -414,7 +414,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             ```json
                             {{
                                 "score": <Điểm số từ 0.0 đến 10.0>,
-                                "feedback_markdown": "### 📌 1. ĐÁNH GIÁ CHUNG\\n* **Điểm số:** <Số điểm>/10.0\\n* **Trạng thái:** <AC / RTE TLE WA>\\n* **Nhận xét nhanh:** <Lời 1-2 câu gọn hoặc ngắn quan tổng viên động>\\n\\n### 🔍 2. PHÂN TÍCH ĐỘ PHỨC TẠP THUẬT TOÁN\\n* **Thời gian (Time Complexity):** $O(...)$\\n* **Bộ nhớ (Space Complexity):** $O(...)$\\n* **Đánh giá giới hạn:** <Cho AC N biết bài có không này thuật toán trong trọn vẹn với đạt đề>\\n\\n### 🛠️ 3. NHẬN XÉT CHI TIẾT BÀI LÀM\\n* **Ưu điểm:** <Nêu biến, code, cách cấu dữ kiểu liệu... trong trúc tên tốt điểm đặt>\\n* **Hạn chế / Lỗi chưa tối ưu:** <Nêu (Edge cases) chưa chết code các còn dòng góc hay hoặc logic sót tối ưu>\\n\\n### 💡 4. HƯỚNG TỐI ƯU CỐT LÕI (GỢI Ý SƯ PHẠM)\\n* **Ý tưởng cải tiến:** <Giải bản cho chất code gọn hơn không mà ngắn sẵn thuật thích toán tối ưu>\\n* **Kỹ thuật khuyến nghị:** <Nêu / Mảng Pointers... Quy Two cấu cộng dùng dồn, dữ hoạch liệu như nên thuật toán trúc tên động,>"
+                                "feedback_markdown": "### 📌 1. ĐÁNH GIÁ CHUNG\\n* **Điểm số:** <Số điểm>/10.0\\n* **Trạng thái:** <AC / RTE TLE WA>\\n* **Nhận xét nhanh:** <Lời 1-2 câu gàng gọn khuyên>\\n\\n### 🔍 2. PHÂN TÍCH ĐỘ PHỨC TẠP THUẬT TOÁN\\n* **Thời gian (Time Complexity):** $O(...)$\\n* **Bộ nhớ (Space Complexity):** $O(...)$\\n* **Đánh giá giới hạn:** <Cho AC N biết bài có giới hay hạn không trong trọn vẹn với đạt đề>\\n\\n### 🛠️ 3. NHẬN XÉT CHI TIẾT BÀI LÀM\\n* **Ưu điểm:** <Nêu biến, code... cách cấu trong trúc tên tốt điểm đặt>\\n* **Hạn chế / Lỗi chưa tối ưu:** <Nêu chưa chết code các còn dòng hay tối ưu>\\n\\n### 💡 4. HƯỚNG TỐI ƯU CỐT LÕI (GỢI Ý SƯ PHẠM)\\n* **Ý tưởng cải tiến:** <Giải bản chất thuật thích toán tối ưu>\\n* **Kỹ thuật khuyến nghị:** <Nêu / cấu dùng dữ liệu nên thuật toán trúc>"
                             }}
                             ```
                             """
@@ -448,10 +448,14 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                                 "trang_thai": status if calculated_score > 0 else "Wrong Answer",
                                 "thoi_gian_chay": f"{exec_time:.2f} ms",
                                 "thoi_gian_nop": time.strftime("%H:%M:%S %d/%m/%Y"),
-                                "nhan_xet_ai": feedback_text
+                                "nhan_xet_ai": feedback_text,
+                                "code_cpp": final_code_to_grade
                             }
                             st.session_state['submissions_db'][student_id].append(sub_record)
                             st.session_state['last_grade_result'] = sub_record
+                            
+                            # 🌟 LƯU LỊCH SỬ NỘP BÀI LÊN FIREBASE CLOUD REALTIME
+                            db_save("submissions", st.session_state['submissions_db'])
 
             if st.session_state['last_grade_result'] is not None:
                 res = st.session_state['last_grade_result']
@@ -517,7 +521,7 @@ else:
         
         selected_tab = st.radio(
             "Chọn chức năng làm việc:",
-            ["📋 Danh Sách Bài Đã Đăng", "➕ Thêm Mới / Chỉnh Sửa Đề Bài", "👥 Quản Lý Tài Khoản Học Sinh"],
+            ["📋 Danh Sách Bài Đã Đăng", "➕ Thêm Mới / Chỉnh Sửa Đề Bài", "👥 Quản Lý Tài Khoản Học Sinh", "📊 Thống Kê & Báo Cáo Học Sinh"],
             index=st.session_state['active_teacher_tab'],
             horizontal=True
         )
@@ -720,8 +724,7 @@ else:
                         st.session_state['selected_problem_id'] = -1
                         st.rerun()
 
-        # TAB 3: QUẢN LÝ TÀI KHOẢN HỌC SINH ĐỒNG BỘ ĐÁM MÂY
-        else:
+        elif selected_tab == "👥 Quản Lý Tài Khoản Học Sinh":
             st.markdown("### 👤 Quản Lý Tài Khoản Học Sinh Nội Bộ (Đồng Bộ Đám Mây)")
             
             col_add_acc, col_edit_acc = st.columns([1, 1])
@@ -742,7 +745,7 @@ else:
                             st.toast(f"✅ Đã cấp tài khoản cho: {clean_u}!", icon="🎉")
                             st.rerun()
                     else:
-                        st.error("Vui lòng điền đủ Username và Password!")
+                        st.error("Vui lòng điền đủ Username and Password!")
 
             with col_edit_acc:
                 st.caption("🛠️ **Chỉnh Sửa / Cấp Lại Mật Khẩu:**")
@@ -773,3 +776,84 @@ else:
             acc_data = [{"STT": idx+1, "Tên Đăng Nhập": u, "Mật Khẩu": p} 
                         for idx, (u, p) in enumerate(st.session_state['student_accounts'].items())]
             st.dataframe(acc_data, use_container_width=True)
+
+        # 🌟 TAB MỚI: BẢNG THEO DÕI THỐNG KÊ CHI TIẾT THEO TỪNG BÀI TẬP
+        else:
+            st.markdown("### 📊 Thống Kê & Báo Cáo Kết Quả Nộp Bài Theo Bài Tập")
+            
+            if len(st.session_state['problems_db']) == 0:
+                st.info("Chưa có bài tập nào để thống kê.")
+            else:
+                # BƯỚC 1: CHỌN BÀI TẬP CẦN SOI
+                prob_titles = [p['ten_bai'] for p in st.session_state['problems_db']]
+                selected_prob_title = st.selectbox("🎯 Chọn Bài Tập Cần Theo Dõi Kết Quả:", prob_titles)
+                
+                st.markdown("---")
+                
+                # BƯỚC 2: TRÍCH XUẤT LỊCH SỬ DỮ LIỆU CỦA BÀI TẬP ĐÓ
+                all_subs = db_get("submissions", st.session_state['submissions_db'])
+                st.session_state['submissions_db'] = all_subs
+                
+                # Tổng hợp danh sách học sinh đã từng nộp bài này
+                student_summary = []
+                
+                for st_id, sub_list in all_subs.items():
+                    # Lọc các lần nộp thuộc bài tập đang chọn
+                    prob_subs = [s for s in sub_list if s.get('ten_bai') == selected_prob_title]
+                    if len(prob_subs) > 0:
+                        # Tìm bài có điểm cao nhất
+                        best_sub = max(prob_subs, key=lambda x: x.get('diem', 0.0))
+                        student_summary.append({
+                            "Học Sinh": st_id,
+                            "Số Lần Nộp Bài": len(prob_subs),
+                            "Điểm Cao Nhất": best_sub.get('diem', 0.0),
+                            "Trạng Thái Lần Cao Nhất": best_sub.get('trang_thai', 'N/A'),
+                            "Thời Gian Nộp Lần Cao Nhất": best_sub.get('thoi_gian_nop', 'N/A'),
+                            "best_code": best_sub.get('code_cpp', '// Không có mã nguồn'),
+                            "best_feedback": best_sub.get('nhan_xet_ai', ''),
+                            "all_prob_subs": prob_subs
+                        })
+                
+                if len(student_summary) == 0:
+                    st.warning(f"⚠️ Chưa có học sinh nào nộp bài **{selected_prob_title}**.")
+                else:
+                    st.success(f"📈 **Có {len(student_summary)} học sinh đã tham gia làm bài này:**")
+                    
+                    # Hiện bảng tổng quan
+                    table_display = [{
+                        "STT": i+1,
+                        "Tên Học Sinh": s["Học Sinh"],
+                        "Số Lần Nộp": s["Số Lần Nộp Bài"],
+                        "Điểm Cao Nhất": f"{s['Điểm Cao Nhất']:.1f}/10.0",
+                        "Trạng Thái Best": s["Trạng Thái Lần Cao Nhất"],
+                        "Thời Gian Nộp Best": s["Thời Gian Nộp Lần Cao Nhất"]
+                    } for i, s in enumerate(student_summary)]
+                    
+                    st.dataframe(table_display, use_container_width=True)
+                    
+                    st.markdown("---")
+                    st.markdown("### 🔍 Xem Chi Tiết Mã Nguồn C++ & Lịch Sử Của Từng Học Sinh")
+                    
+                    # Chọn học sinh cụ thể để soi code
+                    st_names = [s["Học Sinh"] for s in student_summary]
+                    chosen_st = st.selectbox("👤 Chọn Học Sinh Cần Kiểm Tra Code:", st_names)
+                    
+                    # Lấy thông tin học sinh được chọn
+                    st_info = next(s for s in student_summary if s["Học Sinh"] == chosen_st)
+                    
+                    col_code_view, col_detail_view = st.columns([1, 1])
+                    
+                    with col_code_view:
+                        st.markdown(f"#### 💻 Code C++ Đạt Điểm Cao Nhất ({st_info['Điểm Cao Nhất']:.1f}/10):")
+                        st.code(st_info['best_code'], language='cpp')
+                    
+                    with col_detail_view:
+                        st.markdown("#### 📋 Đánh Giá Từ AI Của Lần Đạt Điểm Cao Nhất:")
+                        st.markdown(st_info['best_feedback'])
+                    
+                    st.markdown("#### 📜 Tất Cả Lần Nộp Của Học Sinh Này Về Bài Này:")
+                    for idx_s, s_item in enumerate(reversed(st_info['all_prob_subs'])):
+                        with st.expander(f"⏱️ Lần {len(st_info['all_prob_subs'])-idx_s}: Điểm {s_item.get('diem', 0.0):.1f}/10 — {s_item.get('thoi_gian_nop', '')}"):
+                            st.write(f"**Trạng thái:** `{s_item.get('trang_thai', '')}` | **Thời gian chạy:** `{s_item.get('thoi_gian_chay', '')}`")
+                            st.caption("Mã nguồn C++ lần nộp này:")
+                            st.code(s_item.get('code_cpp', '// Không có mã nguồn'), language='cpp')

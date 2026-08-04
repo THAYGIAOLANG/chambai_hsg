@@ -6,6 +6,7 @@ import time
 import json
 import re
 import requests
+import unicodedata
 from pypdf import PdfReader
 import docx
 from google import genai
@@ -68,6 +69,15 @@ st.markdown("""
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
 TEACHER_PASSWORD = st.secrets.get("TEACHER_PASSWORD", "hoang123")
 FIREBASE_URL = st.secrets.get("FIREBASE_URL", "").rstrip("/")
+
+# HÀM SANITIZE LÀM SẠCH VĂN BẢN UNICODE AN TOÀN TUYỆT ĐỐI
+def sanitize_text(text):
+    if not isinstance(text, str):
+        text = str(text)
+    # Chuẩn hóa unicode tiếng Việt sang dạng NFC
+    text = unicodedata.normalize('NFC', text)
+    # Loại bỏ các ký tự lỗi surrogate không thể mã hóa
+    return text.encode('utf-8', 'ignore').decode('utf-8')
 
 # ==========================================
 # 2. XỬ LÝ LƯU TRỮ ĐÁM MÂY VĨNH VIỄN QUA FIREBASE
@@ -157,11 +167,12 @@ def extract_text_from_pdf(pdf_file):
         extracted = page.extract_text()
         if extracted:
             text += extracted + "\n"
-    return text
+    return sanitize_text(text)
 
 def extract_text_from_docx(docx_file):
     doc = docx.Document(docx_file)
-    return "\n".join([p.text for p in doc.paragraphs if p.text.strip() != ""])
+    text = "\n".join([p.text for p in doc.paragraphs if p.text.strip() != ""])
+    return sanitize_text(text)
 
 def compile_cpp(cpp_file, exec_file):
     if os.name == 'nt' and not exec_file.endswith('.exe'):
@@ -345,7 +356,13 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                 st.markdown("**Cách 1: Tải tệp mã nguồn (.cpp):**")
                 cpp_file = st.file_uploader("Chọn file .cpp từ máy tính:", type=["cpp", "c", "txt"], key=prob_key)
                 if cpp_file is not None:
-                    uploaded_code_text = cpp_file.read().decode("utf-8")
+                    # 🌟 ĐỌC FILE BẰNG BINARY VÀ LÀM SẠCH UNICODE AN TOÀN
+                    raw_bytes = cpp_file.read()
+                    try:
+                        uploaded_code_text = raw_bytes.decode('utf-8-sig')
+                    except UnicodeDecodeError:
+                        uploaded_code_text = raw_bytes.decode('latin-1', errors='ignore')
+                    uploaded_code_text = sanitize_text(uploaded_code_text)
                     st.success("✅ Đã nạp thành công code từ file!")
 
             with col_edit:
@@ -359,6 +376,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                 )
 
             final_code_to_grade = uploaded_code_text.strip() if uploaded_code_text.strip() else pasted_code.strip()
+            final_code_to_grade = sanitize_text(final_code_to_grade)
 
             btn_submit = st.button("🚀 CHẤM BÀI & PHÂN TÍCH THUẬT TOÁN", type="primary", use_container_width=True)
 
@@ -384,6 +402,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             
                             client = genai.Client(api_key=GEMINI_API_KEY)
                             
+                            # 🌟 TẠO PROMPT VÀ LÀM SẠCH KÝ TỰ UNICODE HOÀN TOÀN
                             prompt_text = f"""
                             Bạn là một Giáo viên dạy Bồi dưỡng Học sinh giỏi Tin học tâm huyết, Am hiểu thuật toán và chuẩn sư phạm.
                             Hãy đánh giá bài làm C++ của học sinh dựa trên ĐỀ BÀI và GIỚI HẠN (Constraints) dưới đây.
@@ -412,7 +431,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             ```
                             """
                             
-                            clean_prompt = prompt_text.encode('utf-8', 'ignore').decode('utf-8')
+                            clean_prompt = sanitize_text(prompt_text)
 
                             response = client.models.generate_content(
                                 model="gemini-2.5-flash",
@@ -604,7 +623,7 @@ else:
                     elif uploaded_file.name.endswith(".docx"):
                         extracted_text = extract_text_from_docx(uploaded_file)
                     elif uploaded_file.name.endswith(".txt"):
-                        extracted_text = uploaded_file.read().decode("utf-8")
+                        extracted_text = sanitize_text(uploaded_file.read().decode("utf-8", errors="ignore"))
                     st.success("✅ Đã trích xuất xong đề từ file!")
 
             de_bai_val = st.text_area("📝 Nội dung Đề bài & Giới hạn:", value=extracted_text, height=240)
@@ -637,7 +656,7 @@ else:
                 st.caption("Cách 1: Tải file `.cpp` mẫu từ máy:")
                 cpp_sample_file = st.file_uploader("Nạp file C++ mẫu:", type=["cpp", "c", "txt"], key="teacher_cpp_up")
                 if cpp_sample_file is not None:
-                    uploaded_cpp_code = cpp_sample_file.read().decode("utf-8")
+                    uploaded_cpp_code = sanitize_text(cpp_sample_file.read().decode("utf-8", errors="ignore"))
                     st.success("✅ Đã nạp code từ file!")
 
             with col_cpp_text:
@@ -674,7 +693,7 @@ else:
                             2. Kết quả các bộ Sample Testcase có chính xác với kết quả Code mẫu sinh ra không?
                             3. Kết luận: [CHUẨN ĐỂ ĐĂNG BÀI] hoặc [CẦN ĐIỀU CHỈNH].
                             """
-                            clean_v_prompt = verify_prompt.encode('utf-8', 'ignore').decode('utf-8')
+                            clean_v_prompt = sanitize_text(verify_prompt)
                             check_res = client.models.generate_content(
                                 model="gemini-2.5-flash",
                                 contents=clean_v_prompt
@@ -689,15 +708,15 @@ else:
                     else:
                         new_data = {
                             "id": len(st.session_state['problems_db']) if is_new else edit_id,
-                            "ten_bai": ten_bai_val,
+                            "ten_bai": sanitize_text(ten_bai_val),
                             "io_mode": io_mode_val,
-                            "file_inp": file_inp_val,
-                            "file_out": file_out_val,
-                            "de_bai": de_bai_val,
-                            "sample_in_1": in_1, "sample_out_1": out_1,
-                            "sample_in_2": in_2, "sample_out_2": out_2,
-                            "sample_in_3": in_3, "sample_out_3": out_3,
-                            "code_mau": code_mau_val
+                            "file_inp": sanitize_text(file_inp_val),
+                            "file_out": sanitize_text(file_out_val),
+                            "de_bai": sanitize_text(de_bai_val),
+                            "sample_in_1": sanitize_text(in_1), "sample_out_1": sanitize_text(out_1),
+                            "sample_in_2": sanitize_text(in_2), "sample_out_2": sanitize_text(out_2),
+                            "sample_in_3": sanitize_text(in_3), "sample_out_3": sanitize_text(out_3),
+                            "code_mau": sanitize_text(code_mau_val)
                         }
                         
                         if is_new:
@@ -725,12 +744,14 @@ else:
                 new_p = st.text_input("Mật khẩu mới:", type="password", key="add_pass")
                 if st.button("🔑 CẤP TÀI KHOẢN MỚI", type="primary", use_container_width=True):
                     if new_u and new_p:
-                        if new_u in st.session_state['student_accounts']:
+                        clean_u = sanitize_text(new_u)
+                        clean_p = sanitize_text(new_p)
+                        if clean_u in st.session_state['student_accounts']:
                             st.error("Tên đăng nhập này đã tồn tại!")
                         else:
-                            st.session_state['student_accounts'][new_u] = new_p
+                            st.session_state['student_accounts'][clean_u] = clean_p
                             db_save("accounts", st.session_state['student_accounts'])
-                            st.toast(f"✅ Đã cấp tài khoản cho: {new_u}!", icon="🎉")
+                            st.toast(f"✅ Đã cấp tài khoản cho: {clean_u}!", icon="🎉")
                             st.rerun()
                     else:
                         st.error("Vui lòng điền đủ Username và Password!")
@@ -747,7 +768,7 @@ else:
                     c_btn1, c_btn2 = st.columns(2)
                     with c_btn1:
                         if st.button("💾 ĐỔI MẬT KHẨU", use_container_width=True):
-                            st.session_state['student_accounts'][selected_acc] = mod_pass
+                            st.session_state['student_accounts'][selected_acc] = sanitize_text(mod_pass)
                             db_save("accounts", st.session_state['student_accounts'])
                             st.toast(f"✅ Đã đổi mật khẩu cho {selected_acc}!", icon="🔑")
                             st.rerun()

@@ -66,17 +66,16 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
+raw_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
+GEMINI_API_KEY = "".join(c for c in raw_api_key if ord(c) < 128).strip()
+
 TEACHER_PASSWORD = st.secrets.get("TEACHER_PASSWORD", "hoang123")
 FIREBASE_URL = st.secrets.get("FIREBASE_URL", "").rstrip("/")
 
-# HÀM SANITIZE LÀM SẠCH VĂN BẢN UNICODE AN TOÀN TUYỆT ĐỐI
 def sanitize_text(text):
     if not isinstance(text, str):
         text = str(text)
-    # Chuẩn hóa unicode tiếng Việt sang dạng NFC
     text = unicodedata.normalize('NFC', text)
-    # Loại bỏ các ký tự lỗi surrogate không thể mã hóa
     return text.encode('utf-8', 'ignore').decode('utf-8')
 
 # ==========================================
@@ -356,7 +355,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                 st.markdown("**Cách 1: Tải tệp mã nguồn (.cpp):**")
                 cpp_file = st.file_uploader("Chọn file .cpp từ máy tính:", type=["cpp", "c", "txt"], key=prob_key)
                 if cpp_file is not None:
-                    # 🌟 ĐỌC FILE BẰNG BINARY VÀ LÀM SẠCH UNICODE AN TOÀN
                     raw_bytes = cpp_file.read()
                     try:
                         uploaded_code_text = raw_bytes.decode('utf-8-sig')
@@ -402,31 +400,21 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             
                             client = genai.Client(api_key=GEMINI_API_KEY)
                             
-                            # 🌟 TẠO PROMPT VÀ LÀM SẠCH KÝ TỰ UNICODE HOÀN TOÀN
+                            # 🌟 PROMPT RÀNG BUỘC CẤU TRÚC NHẬN XẾT CỐ ĐỊNH 100%
                             prompt_text = f"""
-                            Bạn là một Giáo viên dạy Bồi dưỡng Học sinh giỏi Tin học tâm huyết, Am hiểu thuật toán và chuẩn sư phạm.
-                            Hãy đánh giá bài làm C++ của học sinh dựa trên ĐỀ BÀI và GIỚI HẠN (Constraints) dưới đây.
+                            Bạn là một Giáo viên dạy Bồi dưỡng Học sinh giỏi Tin học THCS/THPT chuyên nghiệp.
+                            Hãy đánh giá bài làm C++ của học sinh dựa trên ĐỀ BÀI và MÃ NGUỒN.
 
-                            [ĐỀ BÀI & GIỚI HẠN CONSTRAINTS]:
-                            {prob['de_bai']}
+                            [ĐỀ BÀI]: {prob['de_bai']}
+                            [MÃ NGUỒN HỌC SINH]: {final_code_to_grade}
+                            [KẾT QUẢ CHẠY THỰC TẾ]: Trạng thái={status}, Thời gian={exec_time:.2f}ms
 
-                            [MÃ NGUỒN HỌC SINH]:
-                            {final_code_to_grade}
+                            BẮT BUỘC TRẢ VỀ DẠNG JSON CHÍNH XÁC VỚI ĐÚNG CẤU TRÚC MARKDOWN TRONG `feedback_markdown` NHƯ SAU:
 
-                            [KẾT QUẢ BIÊN DỊCH & CHẠY MẪU]:
-                            Trạng thái={status}, Thời gian chạy thực tế={exec_time:.2f}ms
-
-                            QUY TẮC ĐÁNH GIÁ SƯ PHẠM RẤT QUAN TRỌNG:
-                            1. BẮT BUỘC ĐỌC KỸ GIỚI HẠN (Constraints) TRONG ĐỀ BÀI (Ví dụ: N <= 100, N <= 10^5...).
-                            2. Nếu Đề bài cho N nhỏ (ví dụ N <= 100), thuật toán O(N) hoặc O(N^2) chạy mượt mà VẪN ĐẠT ĐIỂM TỐI ĐA (10.0/10 - AC 100%). TUYỆT ĐỐI KHÔNG BÁO TLE KHI N TRONG ĐỀ YÊU CẦU NHỎ!
-                            3. Nếu thuật toán đúng logic nhưng chỉ tối ưu cho N nhỏ, hãy giải thích nhẹ nhàng.
-                            4. Gợi ý cải tiến phải mang tính SƯ PHẠM: Giải thích Ý TƯỞNG CỐT LÕI giúp học sinh hiểu bản chất bài toán.
-
-                            Hãy trả về JSON duy nhất theo định dạng:
                             ```json
                             {{
-                                "score": <Điểm số từ 0.0 đến 10.0 tùy theo giới hạn đề thi>,
-                                "feedback_markdown": "### 📌 ĐÁNH GIÁ TỪ THẦY AI\\n\\n* 🔴 **Lỗi cú pháp / Biên dịch:** <Nêu gọn ngắn>\\n* 🟢 **Tính đúng đắn & Giới hạn (AC):** <Đánh giá độ đúng đắn dựa trên ĐÚNG giới hạn N của đề bài.>\\n* ⚡ **Phân tích sư phạm & Hướng phát triển:** <Giải BẢN CHẤT TOÁN/TIN học thích>"
+                                "score": <Điểm số từ 0.0 đến 10.0>,
+                                "feedback_markdown": "### 📌 1. ĐÁNH GIÁ CHUNG\\n* **Điểm số:** <Số điểm>/10.0\\n* **Trạng thái:** <AC / RTE TLE WA>\\n* **Nhận xét nhanh:** <Lời 1-2 câu gọn hoặc ngắn quan tổng viên động>\\n\\n### 🔍 2. PHÂN TÍCH ĐỘ PHỨC TẠP THUẬT TOÁN\\n* **Thời gian (Time Complexity):** $O(...)$\\n* **Bộ nhớ (Space Complexity):** $O(...)$\\n* **Đánh giá giới hạn:** <Cho AC N biết bài có không này thuật toán trong trọn vẹn với đạt đề>\\n\\n### 🛠️ 3. NHẬN XÉT CHI TIẾT BÀI LÀM\\n* **Ưu điểm:** <Nêu biến, code, cách cấu dữ kiểu liệu... trong trúc tên tốt điểm đặt>\\n* **Hạn chế / Lỗi chưa tối ưu:** <Nêu (Edge cases) chưa chết code các còn dòng góc hay hoặc logic sót tối ưu>\\n\\n### 💡 4. HƯỚNG TỐI ƯU CỐT LÕI (GỢI Ý SƯ PHẠM)\\n* **Ý tưởng cải tiến:** <Giải bản cho chất code gọn hơn không mà ngắn sẵn thuật thích toán tối ưu>\\n* **Kỹ thuật khuyến nghị:** <Nêu / Mảng Pointers... Quy Two cấu cộng dùng dồn, dữ hoạch liệu như nên thuật toán trúc tên động,>"
                             }}
                             ```
                             """
@@ -485,7 +473,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                 m2.metric("Thời Gian Chạy Thực Tế", res['thoi_gian_chay'], delta="Tối ưu")
                 m3.metric("Điểm Số Đạt Được", f"{res['diem']:.1f}/10")
                 
-                st.markdown("### 📋 Phân Tích Chi Tiết Từ AI Chuyên Gia")
+                st.markdown("---")
                 st.markdown(res['nhan_xet_ai'])
 
         with student_tab2:

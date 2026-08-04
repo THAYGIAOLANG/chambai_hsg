@@ -35,16 +35,7 @@ st.markdown("""
     .main-header h1 { color: #ffffff !important; margin-bottom: 5px; font-weight: 700; font-size: 1.8rem; }
     .main-header p { color: #e0e6ed !important; margin: 0; font-size: 1rem; }
     
-    .problem-card {
-        background-color: #f8fafc;
-        border-left: 5px solid #2a5298;
-        padding: 22px;
-        border-radius: 10px;
-        margin-bottom: 18px;
-        font-size: 1.15rem !important;
-        line-height: 1.7 !important;
-        color: #0f172a !important;
-    }
+    /* FIX LỖI XUỐNG DÒNG CỦA CÁC BỘ TEST MẪU */
     .sample-box {
         background-color: #0f172a;
         color: #38bdf8;
@@ -52,6 +43,8 @@ st.markdown("""
         padding: 12px;
         border-radius: 6px;
         font-size: 1rem;
+        white-space: pre-wrap !important;
+        word-break: break-word;
     }
     .file-badge {
         background-color: #e0f2fe;
@@ -314,11 +307,13 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                 st.markdown('<div class="file-badge">⌨️ Hình thức nạp dữ liệu: Nhập từ bàn phím (cin) — In ra màn hình (cout)</div>', unsafe_allow_html=True)
 
             with st.container():
-                st.markdown(f'<div class="problem-card">{prob["de_bai"]}</div>', unsafe_allow_html=True)
+                # FIX LỖI 1: RENDER NỘI DUNG ĐỀ BÀI BẰNG MARKDOWN ĐỂ GIỮ NGUYÊN NỔI DÒNG (\n)
+                st.markdown(prob["de_bai"])
                 
                 st.markdown("### 🧪 Ví dụ Mẫu (Sample Tests):")
                 tab1, tab2, tab3 = st.tabs(["📌 Test Mẫu 1", "📌 Test Mẫu 2", "📌 Test Mẫu 3"])
                 
+                # FIX LỖI 2: GIỮ NGUYÊN ĐỊNH DẠNG XUỐNG DÒNG VÀ KHỎANG TRẮNG CỦA TESTCASE
                 with tab1:
                     col1, col2 = st.columns(2)
                     with col1:
@@ -396,7 +391,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             st.error("❌ **LỖI BIÊN DỊCH (Compile Error):**")
                             st.code(compile_err, language="bash")
                         else:
-                            # Chạy thử 1 sample input
                             status, output, exec_time = run_testcase("student.exec", prob.get("sample_in_1", ""))
                             
                             client = genai.Client(api_key=GEMINI_API_KEY)
@@ -418,7 +412,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             
                             clean_prompt = sanitize_text(prompt_text)
 
-                            # 🌟 CẤU HÌNH KHÓA TEMPERATURE = 0.0 ĐỂ CHẤM 100 LẦN CÙNG 1 ĐIỂM
                             response = client.models.generate_content(
                                 model="gemini-2.5-flash",
                                 contents=clean_prompt,

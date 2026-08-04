@@ -5,6 +5,7 @@ import random
 import time
 import json
 import re
+import requests
 from pypdf import PdfReader
 import docx
 from google import genai
@@ -66,29 +67,11 @@ st.markdown("""
 
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
 TEACHER_PASSWORD = st.secrets.get("TEACHER_PASSWORD", "hoang123")
+FIREBASE_URL = st.secrets.get("FIREBASE_URL", "").rstrip("/")
 
 # ==========================================
-# 2. XỬ LÝ LƯU TRỮ DỮ LIỆU BỀN VỮNG (PERSISTENT DATA)
+# 2. XỬ LÝ LƯU TRỮ ĐÁM MÂY VĨNH VIỄN QUA FIREBASE
 # ==========================================
-PROBLEMS_FILE = "data_problems.json"
-ACCOUNTS_FILE = "data_accounts.json"
-
-def load_data(file_path, default_data):
-    if os.path.exists(file_path):
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return default_data
-    return default_data
-
-def save_data(file_path, data):
-    try:
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
-    except Exception as e:
-        st.error(f"Lỗi khi lưu dữ liệu: {e}")
-
 DEFAULT_PROBLEMS = [
     {
         "id": 0,
@@ -124,11 +107,30 @@ DEFAULT_ACCOUNTS = {
     "hocsinh02": "123456"
 }
 
+def db_get(endpoint, default_value):
+    if not FIREBASE_URL:
+        return default_value
+    try:
+        res = requests.get(f"{FIREBASE_URL}/{endpoint}.json", timeout=5)
+        if res.status_code == 200 and res.json() is not None:
+            return res.json()
+    except Exception:
+        pass
+    return default_value
+
+def db_save(endpoint, data):
+    if not FIREBASE_URL:
+        return
+    try:
+        requests.put(f"{FIREBASE_URL}/{endpoint}.json", json=data, timeout=5)
+    except Exception as e:
+        st.error(f"Lỗi đồng bộ Firebase: {e}")
+
 if 'problems_db' not in st.session_state:
-    st.session_state['problems_db'] = load_data(PROBLEMS_FILE, DEFAULT_PROBLEMS)
+    st.session_state['problems_db'] = db_get("problems", DEFAULT_PROBLEMS)
 
 if 'student_accounts' not in st.session_state:
-    st.session_state['student_accounts'] = load_data(ACCOUNTS_FILE, DEFAULT_ACCOUNTS)
+    st.session_state['student_accounts'] = db_get("accounts", DEFAULT_ACCOUNTS)
 
 if 'user_role' not in st.session_state:
     st.session_state['user_role'] = None
@@ -382,7 +384,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             
                             client = genai.Client(api_key=GEMINI_API_KEY)
                             
-                            prompt = f"""
+                            prompt_text = f"""
                             Bạn là một Giáo viên dạy Bồi dưỡng Học sinh giỏi Tin học tâm huyết, Am hiểu thuật toán và chuẩn sư phạm.
                             Hãy đánh giá bài làm C++ của học sinh dựa trên ĐỀ BÀI và GIỚI HẠN (Constraints) dưới đây.
 
@@ -398,21 +400,23 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             QUY TẮC ĐÁNH GIÁ SƯ PHẠM RẤT QUAN TRỌNG:
                             1. BẮT BUỘC ĐỌC KỸ GIỚI HẠN (Constraints) TRONG ĐỀ BÀI (Ví dụ: N <= 100, N <= 10^5...).
                             2. Nếu Đề bài cho N nhỏ (ví dụ N <= 100), thuật toán O(N) hoặc O(N^2) chạy mượt mà VẪN ĐẠT ĐIỂM TỐI ĐA (10.0/10 - AC 100%). TUYỆT ĐỐI KHÔNG BÁO TLE KHI N TRONG ĐỀ YÊU CẦU NHỎ!
-                            3. Nếu thuật toán đúng logic nhưng chỉ tối ưu cho N nhỏ, hãy giải thích nhẹ nhàng: "Thuật toán đúng logic. Đạt điểm tối đa cho bài toán hiện tại. Nếu N lớn hơn (ví dụ N >= 10^6) mới cần tối ưu".
+                            3. Nếu thuật toán đúng logic nhưng chỉ tối ưu cho N nhỏ, hãy giải thích nhẹ nhàng.
                             4. Gợi ý cải tiến phải mang tính SƯ PHẠM: Giải thích Ý TƯỞNG CỐT LÕI giúp học sinh hiểu bản chất bài toán.
 
                             Hãy trả về JSON duy nhất theo định dạng:
                             ```json
                             {{
                                 "score": <Điểm số từ 0.0 đến 10.0 tùy theo giới hạn đề thi>,
-                                "feedback_markdown": "### 📌 ĐÁNH GIÁ TỪ THẦY AI\\n\\n* 🔴 **Lỗi cú pháp / Biên dịch:** <Nêu 'Mã biên có có, cú dịch ghi gọn không lỗi nguồn ngắn nếu pháp.' tốt,>\\n* 🟢 **Tính đúng đắn & Giới hạn (AC):** <Đánh giá độ đúng đắn dựa trên ĐÚNG giới hạn N của đề bài. Nêu rõ thuật toán O(...) có đạt AC full test hay không.>\\n* ⚡ **Phân tích sư phạm & Hướng phát triển:** <Giải (1-2 BẢN CHẤT TOÁN/TIN TƯỞNG câu duy giúp học lẽ sinh súc thuật thích toán tích) tư tối vỡ Ý để ưu>"
+                                "feedback_markdown": "### 📌 ĐÁNH GIÁ TỪ THẦY AI\\n\\n* 🔴 **Lỗi cú pháp / Biên dịch:** <Nêu gọn ngắn>\\n* 🟢 **Tính đúng đắn & Giới hạn (AC):** <Đánh giá độ đúng đắn dựa trên ĐÚNG giới hạn N của đề bài.>\\n* ⚡ **Phân tích sư phạm & Hướng phát triển:** <Giải BẢN CHẤT TOÁN/TIN học thích>"
                             }}
                             ```
                             """
                             
+                            clean_prompt = prompt_text.encode('utf-8', 'ignore').decode('utf-8')
+
                             response = client.models.generate_content(
                                 model="gemini-2.5-flash",
-                                contents=prompt
+                                contents=clean_prompt
                             )
                             
                             try:
@@ -496,7 +500,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                         st.markdown(sub['nhan_xet_ai'])
 
 # ==========================================
-# 6. GIAO DIỆN GIÁO VIÊN (CÓ LƯU TRỮ VĨNH VIỄN & QUẢN LÝ TK NÂNG CẤP)
+# 6. GIAO DIỆN GIÁO VIÊN (ĐỒNG BỘ ĐÁM MÂY FIREBASE)
 # ==========================================
 else:
     if st.session_state['user_role'] != 'teacher':
@@ -544,7 +548,7 @@ else:
                         if st.button(f"🗑️ XOÁ BÀI", key=f"del_btn_{idx}", type="secondary"):
                             removed_title = st.session_state['problems_db'][idx]['ten_bai']
                             st.session_state['problems_db'].pop(idx)
-                            save_data(PROBLEMS_FILE, st.session_state['problems_db']) # Lưu file ngay
+                            db_save("problems", st.session_state['problems_db'])
                             st.session_state['selected_problem_id'] = -1
                             st.toast(f"🗑️ Đã xóa bài tập: {removed_title}!", icon="🎉")
                             st.rerun()
@@ -670,15 +674,16 @@ else:
                             2. Kết quả các bộ Sample Testcase có chính xác với kết quả Code mẫu sinh ra không?
                             3. Kết luận: [CHUẨN ĐỂ ĐĂNG BÀI] hoặc [CẦN ĐIỀU CHỈNH].
                             """
+                            clean_v_prompt = verify_prompt.encode('utf-8', 'ignore').decode('utf-8')
                             check_res = client.models.generate_content(
                                 model="gemini-2.5-flash",
-                                contents=verify_prompt
+                                contents=clean_v_prompt
                             )
                             st.info("📋 **BÁO CÁO THẨM ĐỊNH TỪ AI:**")
                             st.markdown(check_res.text)
 
             with col_save:
-                if st.button("💾 LƯU BÀI TẬP VÀO HỆ THỐNG (LƯU VĨNH VIỄN)", type="primary", use_container_width=True):
+                if st.button("💾 LƯU BÀI TẬP VÀO FIREBASE (VĨNH VIỄN 100%)", type="primary", use_container_width=True):
                     if not ten_bai_val.strip():
                         st.error("⚠️ Vui lòng nhập Tên Bài Tập trước khi lưu!")
                     else:
@@ -702,16 +707,15 @@ else:
                             st.session_state['problems_db'][edit_id] = new_data
                             st.toast(f"🎉 ĐÃ CẬP NHẬT THÀNH CÔNG BÀI TẬP: {ten_bai_val}!", icon="✅")
                         
-                        # 🌟 LƯU VÀO TỆP JSON BỀN VỮNG
-                        save_data(PROBLEMS_FILE, st.session_state['problems_db'])
+                        db_save("problems", st.session_state['problems_db'])
                         
                         st.session_state['active_teacher_tab'] = 0
                         st.session_state['selected_problem_id'] = -1
                         st.rerun()
 
-        # 🌟 TAB 3 NÂNG CẤP: QUẢN LÝ TÀI KHOẢN ĐẦY ĐỦ (SỬA, RESET MẬT KHẨU, XÓA)
+        # TAB 3: QUẢN LÝ TÀI KHOẢN HỌC SINH ĐỒNG BỘ ĐÁM MÂY
         else:
-            st.markdown("### 👤 Quản Lý Tài Khoản Học Sinh Nội Bộ")
+            st.markdown("### 👤 Quản Lý Tài Khoản Học Sinh Nội Bộ (Đồng Bộ Đám Mây)")
             
             col_add_acc, col_edit_acc = st.columns([1, 1])
             
@@ -725,7 +729,7 @@ else:
                             st.error("Tên đăng nhập này đã tồn tại!")
                         else:
                             st.session_state['student_accounts'][new_u] = new_p
-                            save_data(ACCOUNTS_FILE, st.session_state['student_accounts'])
+                            db_save("accounts", st.session_state['student_accounts'])
                             st.toast(f"✅ Đã cấp tài khoản cho: {new_u}!", icon="🎉")
                             st.rerun()
                     else:
@@ -744,14 +748,14 @@ else:
                     with c_btn1:
                         if st.button("💾 ĐỔI MẬT KHẨU", use_container_width=True):
                             st.session_state['student_accounts'][selected_acc] = mod_pass
-                            save_data(ACCOUNTS_FILE, st.session_state['student_accounts'])
+                            db_save("accounts", st.session_state['student_accounts'])
                             st.toast(f"✅ Đã đổi mật khẩu cho {selected_acc}!", icon="🔑")
                             st.rerun()
                     
                     with c_btn2:
                         if st.button(f"🗑️ XÓA {selected_acc}", type="secondary", use_container_width=True):
                             del st.session_state['student_accounts'][selected_acc]
-                            save_data(ACCOUNTS_FILE, st.session_state['student_accounts'])
+                            db_save("accounts", st.session_state['student_accounts'])
                             st.toast(f"🗑️ Đã xóa tài khoản {selected_acc}!", icon="🎉")
                             st.rerun()
 

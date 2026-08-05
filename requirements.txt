@@ -1,4 +1,6 @@
-streamlit
+streamlit>=1.42.0
+starlette>=0.40.0,<0.46.0
 google-genai
+requests
 pypdf
 python-docx

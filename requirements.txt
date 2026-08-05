@@ -1,5 +1,5 @@
-streamlit>=1.42.0
-starlette>=0.40.0,<0.46.0
+streamlit
+starlette==0.38.6
 google-genai
 requests
 pypdf

@@ -340,13 +340,19 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
             st.markdown("---")
             st.subheader("💻 Nộp Mã Nguồn Bài Giải (C++)")
             
-            # Quản lý bộ nhớ tạm cho khung code theo ID bài
-            code_store_key = f"code_val_prob_{prob['id']}"
-            if code_store_key not in st.session_state:
-                st.session_state[code_store_key] = ""
+            # Key chính thức cho ô Text Area
+            editor_widget_key = f"txt_area_widget_{prob['id']}"
+            if editor_widget_key not in st.session_state:
+                st.session_state[editor_widget_key] = ""
+
+            # Theo dõi tên file đã nạp để phát hiện upload mới
+            file_tracker_key = f"last_uploaded_file_{prob['id']}"
+            if file_tracker_key not in st.session_state:
+                st.session_state[file_tracker_key] = None
 
             col_up, col_edit = st.columns([1, 2])
             
+            uploaded_code_direct = ""
             with col_up:
                 st.markdown("**Cách 1: Tải tệp mã nguồn (.cpp):**")
                 cpp_file = st.file_uploader(
@@ -355,22 +361,21 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                     key=f"uploader_prob_{prob['id']}"
                 )
                 
-                # 🌟 KHI UPLOAD FILE -> ÉP ĐỌC VÀ LƯU THẲNG VÀO SESSION STATE VÀ RERUN TỰ ĐỘNG
+                # 🌟 ĐỒNG BỘ TRỰC TIẾP TỪ FILE SANG TẠM VÀ Ô EDIT
                 if cpp_file is not None:
+                    raw_bytes = cpp_file.getvalue()
                     try:
-                        raw_code_bytes = cpp_file.getvalue()
-                        try:
-                            file_str = raw_code_bytes.decode('utf-8-sig')
-                        except UnicodeDecodeError:
-                            file_str = raw_code_bytes.decode('latin-1', errors='ignore')
-                        
-                        file_str = sanitize_text(file_str)
-                        
-                        if st.session_state[code_store_key] != file_str:
-                            st.session_state[code_store_key] = file_str
-                            st.rerun()
-                    except Exception as e:
-                        st.error(f"Lỗi đọc file: {e}")
+                        file_code_str = raw_bytes.decode('utf-8-sig')
+                    except UnicodeDecodeError:
+                        file_code_str = raw_bytes.decode('latin-1', errors='ignore')
+                    
+                    uploaded_code_direct = sanitize_text(file_code_str)
+                    
+                    # Nếu là file mới chọn lần đầu -> Ghi đè vào ô Text Area và Rerun lập tức!
+                    if st.session_state[file_tracker_key] != cpp_file.name:
+                        st.session_state[file_tracker_key] = cpp_file.name
+                        st.session_state[editor_widget_key] = uploaded_code_direct
+                        st.rerun()
 
             with col_edit:
                 st.markdown("**Cách 2: Gõ/Dán code C++ trực tiếp:**")
@@ -378,18 +383,18 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                 pasted_code = st.text_area(
                     "Khung chỉnh sửa mã nguồn:", 
                     height=260, 
-                    value=st.session_state[code_store_key], 
                     placeholder="// Nhập hoặc dán mã nguồn C++ của em vào đây...",
-                    key=f"txt_area_widget_{prob['id']}"
+                    key=editor_widget_key
                 )
-                st.session_state[code_store_key] = pasted_code
                 
                 if st.button("🗑️ XOÁ SẠCH KHUNG CODE", type="secondary"):
-                    st.session_state[code_store_key] = ""
+                    st.session_state[editor_widget_key] = ""
+                    st.session_state[file_tracker_key] = None
                     st.toast("Đã xóa sạch khung mã nguồn!", icon="🧹")
                     st.rerun()
 
-            final_code_to_grade = st.session_state[code_store_key].strip()
+            # Lấy code để chấm: Ưu tiên nội dung đang có ở Text Area, nếu rỗng lấy từ file upload
+            final_code_to_grade = pasted_code.strip() if pasted_code.strip() else uploaded_code_direct.strip()
 
             btn_submit = st.button("🚀 CHẤM BÀI & PHÂN TÍCH THUẬT TOÁN", type="primary", use_container_width=True)
 
@@ -456,7 +461,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             
                             clean_prompt = sanitize_text(prompt_text)
 
-                            # 🌟 CẤU HÌNH SDK CHUẨN MỚI CỦA GOOGLE GENAI (KHÔNG LO LỖI NOT FOUND)
                             client = genai.Client(api_key=GEMINI_API_KEY)
                             response = client.models.generate_content(
                                 model="gemini-2.5-flash",

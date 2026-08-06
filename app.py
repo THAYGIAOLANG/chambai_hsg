@@ -85,6 +85,8 @@ DEFAULT_PROBLEMS = [
         "sample_in_1": "5\n2 -3 4 -1 2", "sample_out_1": "5",
         "sample_in_2": "3\n-1 -2 -3", "sample_out_2": "-1",
         "sample_in_3": "6\n1 2 3 -2 5 -1", "sample_out_3": "9",
+        "sample_in_4": "4\n-2 1 -3 4", "sample_out_4": "4",
+        "sample_in_5": "5\n5 4 -1 7 8", "sample_out_5": "23",
         "code_mau": """#include <iostream>
 using namespace std;
 int main() {
@@ -308,46 +310,48 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
             with st.container():
                 st.markdown(prob["de_bai"])
                 
-                st.markdown("### 🧪 Ví dụ Mẫu (Sample Tests):")
-                tab1, tab2, tab3 = st.tabs(["📌 Test Mẫu 1", "📌 Test Mẫu 2", "📌 Test Mẫu 3"])
+                st.markdown("### 🧪 Ví dụ Mẫu (5 Bộ Test):")
+                tab1, tab2, tab3, tab4, tab5 = st.tabs(["📌 Test 1", "📌 Test 2", "📌 Test 3", "📌 Test 4", "📌 Test 5"])
                 
                 with tab1:
                     col1, col2 = st.columns(2)
-                    with col1:
-                        st.caption("📥 **Sample Input 1:**")
-                        st.markdown(f'<div class="sample-box">{prob["sample_in_1"]}</div>', unsafe_allow_html=True)
-                    with col2:
-                        st.caption("📤 **Sample Output 1:**")
-                        st.markdown(f'<div class="sample-box">{prob["sample_out_1"]}</div>', unsafe_allow_html=True)
+                    col1.caption("📥 **Input 1:**"); col1.markdown(f'<div class="sample-box">{prob.get("sample_in_1", "")}</div>', unsafe_allow_html=True)
+                    col2.caption("📤 **Output 1:**"); col2.markdown(f'<div class="sample-box">{prob.get("sample_out_1", "")}</div>', unsafe_allow_html=True)
 
                 with tab2:
                     col1, col2 = st.columns(2)
-                    with col1:
-                        st.caption("📥 **Sample Input 2:**")
-                        st.markdown(f'<div class="sample-box">{prob["sample_in_2"]}</div>', unsafe_allow_html=True)
-                    with col2:
-                        st.caption("📤 **Sample Output 2:**")
-                        st.markdown(f'<div class="sample-box">{prob["sample_out_2"]}</div>', unsafe_allow_html=True)
+                    col1.caption("📥 **Input 2:**"); col1.markdown(f'<div class="sample-box">{prob.get("sample_in_2", "")}</div>', unsafe_allow_html=True)
+                    col2.caption("📤 **Output 2:**"); col2.markdown(f'<div class="sample-box">{prob.get("sample_out_2", "")}</div>', unsafe_allow_html=True)
 
                 with tab3:
                     col1, col2 = st.columns(2)
-                    with col1:
-                        st.caption("📥 **Sample Input 3:**")
-                        st.markdown(f'<div class="sample-box">{prob["sample_in_3"]}</div>', unsafe_allow_html=True)
-                    with col2:
-                        st.caption("📤 **Sample Output 3:**")
-                        st.markdown(f'<div class="sample-box">{prob["sample_out_3"]}</div>', unsafe_allow_html=True)
+                    col1.caption("📥 **Input 3:**"); col1.markdown(f'<div class="sample-box">{prob.get("sample_in_3", "")}</div>', unsafe_allow_html=True)
+                    col2.caption("📤 **Output 3:**"); col2.markdown(f'<div class="sample-box">{prob.get("sample_out_3", "")}</div>', unsafe_allow_html=True)
+
+                with tab4:
+                    col1, col2 = st.columns(2)
+                    col1.caption("📥 **Input 4:**"); col1.markdown(f'<div class="sample-box">{prob.get("sample_in_4", "")}</div>', unsafe_allow_html=True)
+                    col2.caption("📤 **Output 4:**"); col2.markdown(f'<div class="sample-box">{prob.get("sample_out_4", "")}</div>', unsafe_allow_html=True)
+
+                with tab5:
+                    col1, col2 = st.columns(2)
+                    col1.caption("📥 **Input 5:**"); col1.markdown(f'<div class="sample-box">{prob.get("sample_in_5", "")}</div>', unsafe_allow_html=True)
+                    col2.caption("📤 **Output 5:**"); col2.markdown(f'<div class="sample-box">{prob.get("sample_out_5", "")}</div>', unsafe_allow_html=True)
 
             st.markdown("---")
             st.subheader("💻 Nộp Mã Nguồn Bài Giải (C++)")
             
+            # Quản lý state khung text code
+            editor_key = f"code_input_area_{prob['id']}"
+            if editor_key not in st.session_state:
+                st.session_state[editor_key] = ""
+
             col_up, col_edit = st.columns([1, 2])
-            prob_key = f"cpp_file_{prob['id']}"
             
             uploaded_code_text = ""
             with col_up:
                 st.markdown("**Cách 1: Tải tệp mã nguồn (.cpp):**")
-                cpp_file = st.file_uploader("Chọn file .cpp từ máy tính:", type=["cpp", "c", "txt"], key=prob_key)
+                cpp_file = st.file_uploader("Chọn file .cpp từ máy tính:", type=["cpp", "c", "txt"], key=f"up_{prob['id']}")
                 if cpp_file is not None:
                     raw_bytes = cpp_file.read()
                     try:
@@ -355,6 +359,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                     except UnicodeDecodeError:
                         uploaded_code_text = raw_bytes.decode('latin-1', errors='ignore')
                     uploaded_code_text = sanitize_text(uploaded_code_text)
+                    st.session_state[editor_key] = uploaded_code_text
                     st.success("✅ Đã nạp thành công code từ file!")
 
             with col_edit:
@@ -362,13 +367,18 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                 pasted_code = st.text_area(
                     "Khung chỉnh sửa mã nguồn:", 
                     height=260, 
-                    value=uploaded_code_text if uploaded_code_text else "", 
+                    value=st.session_state[editor_key], 
                     placeholder="// Nhập hoặc dán mã nguồn C++ của em vào đây...",
-                    key=f"text_area_{prob['id']}_{hash(uploaded_code_text)}"
+                    key=f"text_area_{prob['id']}"
                 )
+                
+                # 🌟 NÚT XOÁ SẠCH KHUNG CODE
+                if st.button("🗑️ XOÁ SẠCH KHUNG CODE", type="secondary"):
+                    st.session_state[editor_key] = ""
+                    st.toast("Đã xóa sạch khung mã nguồn!", icon="🧹")
+                    st.rerun()
 
-            final_code_to_grade = uploaded_code_text.strip() if uploaded_code_text.strip() else pasted_code.strip()
-            final_code_to_grade = sanitize_text(final_code_to_grade)
+            final_code_to_grade = pasted_code.strip()
 
             btn_submit = st.button("🚀 CHẤM BÀI & PHÂN TÍCH THUẬT TOÁN", type="primary", use_container_width=True)
 
@@ -378,7 +388,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                 elif not GEMINI_API_KEY:
                     st.error("⚠️ Hệ thống chưa cấu hình `GEMINI_API_KEY`!")
                 else:
-                    with st.spinner("⏳ Đang tiến hành biên dịch C++ và phân tích thuật toán..."):
+                    with st.spinner("⏳ Đang biên dịch C++ và chấm qua 5 bộ Testcase..."):
                         with open("student.cpp", "w", encoding="utf-8") as f:
                             f.write(final_code_to_grade)
                         
@@ -388,23 +398,58 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             st.error("❌ **LỖI BIÊN DỊCH (Compile Error):**")
                             st.code(compile_err, language="bash")
                         else:
-                            status, output, exec_time = run_testcase("student.exec", prob.get("sample_in_1", ""))
+                            # 🌟 CHẤM BÀI QUA 5 TESTCASE CHÍNH THỨC (2.0 ĐIỂM / TEST)
+                            passed_tests = 0
+                            total_exec_time = 0.0
+                            test_details = []
                             
+                            for t_idx in range(1, 6):
+                                inp_k = prob.get(f"sample_in_{t_idx}", "").strip()
+                                out_k = prob.get(f"sample_out_{t_idx}", "").strip()
+                                
+                                status, run_out, exec_t = run_testcase("student.exec", inp_k)
+                                total_exec_time += exec_t
+                                
+                                # So sánh kết quả in ra với đáp án chuẩn
+                                is_correct = (status == "OK" and run_out.strip() == out_k)
+                                if is_correct:
+                                    passed_tests += 1
+                                    test_details.append(f"* Test {t_idx}: 🟢 Đúng (+2.0 điểm) — {exec_t:.1f}ms")
+                                else:
+                                    test_details.append(f"* Test {t_idx}: 🔴 Sai / Lỗi ({status}) — {exec_t:.1f}ms")
+
+                            calculated_score = float(passed_tests * 2.0)
+                            status_display = f"AC ({passed_tests}/5 Test)" if passed_tests == 5 else f"WA ({passed_tests}/5 Test)"
+
+                            # 🌟 THẦY AI CHỈ TẬP TRUNG NHẬN XẾT SƯ PHẠM VÀ HƯỚNG TỐI ƯU
                             client = genai.Client(api_key=GEMINI_API_KEY)
                             
                             prompt_text = f"""
                             Bạn là một Giáo viên dạy Bồi dưỡng Học sinh giỏi Tin học THCS/THPT chuyên nghiệp.
-                            Hãy đánh giá bài làm C++ của học sinh dựa trên ĐỀ BÀI và MÃ NGUỒN.
+                            Bài làm C++ của học sinh đã được hệ thống chấm điểm tự động qua 5 bộ Testcase:
+                            - Số test đúng: {passed_tests}/5
+                            - Điểm số: {calculated_score}/10.0
 
                             [ĐỀ BÀI]: {prob['de_bai']}
                             [MÃ NGUỒN HỌC SINH]: {final_code_to_grade}
 
-                            BẮT BUỘC TRẢ VỀ DẠNG JSON DUY NHẤT CHÍNH XÁC VỚI CẤU TRÚC DƯỚI ĐÂY (KHÔNG KÈM BLOCK CẤU TRÚC NGOÀI JSON):
-                            {{
-                                "score": <Số_điểm_float_từ_0.0_đến_10.0>,
-                                "status_str": "<AC / TLE / WA / RTE>",
-                                "feedback_markdown": "### 📌 1. ĐÁNH GIÁ CHUNG\\n* **Điểm số:** <Số điểm>/10.0\\n* **Trạng thái:** <AC / TLE / WA / RTE>\\n* **Nhận xét nhanh:** <Lời nhận xét ngắn gọn>\\n\\n### 🔍 2. PHÂN TÍCH ĐỘ PHỨC TẠP THUẬT TOÁN\\n* **Thời gian (Time Complexity):** $O(...)$\\n* **Bộ nhớ (Space Complexity):** $O(...)$\\n* **Đánh giá giới hạn:** <Nhận xét độ phù hợp với giới hạn N>\\n\\n### 🛠️ 3. NHẬN XÉT CHI TIẾT BÀI LÀM\\n* **Ưu điểm:** <Nêu ưu điểm code>\\n* **Hạn chế / Lỗi chưa tối ưu:** <Nêu các dòng chưa tốt>\\n\\n### 💡 4. HƯỚNG TỐI ƯU CỐT LÕI (GỢI Ý SƯ PHẠM)\\n* **Ý tưởng cải tiến:** <Giải thích bản chất thuật toán tối ưu>\\n* **Kỹ thuật khuyến nghị:** <Thuật toán/Cấu trúc dữ liệu khuyến nghị>"
-                            }}
+                            Hãy đưa ra nhận xét sư phạm chi tiết bằng Markdown theo 4 mục chuẩn sau:
+                            ### 📌 1. ĐÁNH GIÁ CHUNG
+                            * **Kết quả chấm máy:** Đạt {calculated_score}/10.0 điểm ({passed_tests}/5 bộ Testcase).
+                            * **Nhận xét nhanh:** <Lời động viên hoặc nhận xét tổng quan 1-2 câu>
+
+                            ### 🔍 2. PHÂN TÍCH ĐỘ PHỨC TẠP THUẬT TOÁN
+                            * **Thời gian (Time Complexity):** $O(...)$
+                            * **Bộ nhớ (Space Complexity):** $O(...)$
+                            * **Đánh giá giới hạn:** <Nhận xét độ phù hợp với giới hạn N của bài>
+
+                            ### 🛠️ 3. NHẬN XÉT CHI TIẾT BÀI LÀM
+                            * **Ưu điểm:** <Nêu ưu điểm cách đặt tên biến, cấu trúc code...>
+                            * **Hạn chế / Lỗi cần sửa:** <Chỉ ra cụ thể các dòng code chưa tối ưu hoặc thiếu edge case>
+
+                            ### 💡 4. HƯỚNG TỐI ƯU CỐT LÕI (GỢI Ý SƯ PHẠM)
+                            * **Ý tưởng cải tiến:** <Giải thích thuật toán tối ưu hơn nếu bài chưa đạt điểm tối đa>
+                            * **Kỹ thuật khuyến nghị:** <Nêu tên Thuật toán/Cấu trúc dữ liệu nên dùng>
                             """
                             
                             clean_prompt = sanitize_text(prompt_text)
@@ -413,32 +458,11 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                                 model="gemini-2.5-flash",
                                 contents=clean_prompt,
                                 config=types.GenerateContentConfig(
-                                    temperature=0.0,
-                                    response_mime_type="application/json"
+                                    temperature=0.0
                                 )
                             )
                             
-                            calculated_score = 0.0
-                            status_display = status
-                            feedback_text = ""
-
-                            try:
-                                res_json = json.loads(response.text)
-                                calculated_score = float(res_json.get("score", 0.0))
-                                status_display = res_json.get("status_str", "AC" if calculated_score == 10.0 else "WA")
-                                feedback_text = res_json.get("feedback_markdown", "")
-                            except Exception:
-                                json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
-                                if json_match:
-                                    try:
-                                        res_json = json.loads(json_match.group(0))
-                                        calculated_score = float(res_json.get("score", 0.0))
-                                        status_display = res_json.get("status_str", "AC" if calculated_score == 10.0 else "WA")
-                                        feedback_text = res_json.get("feedback_markdown", "")
-                                    except:
-                                        feedback_text = response.text
-                                else:
-                                    feedback_text = response.text
+                            feedback_text = response.text
 
                             if student_id not in st.session_state['submissions_db']:
                                 st.session_state['submissions_db'][student_id] = []
@@ -447,7 +471,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                                 "ten_bai": prob['ten_bai'],
                                 "diem": calculated_score,
                                 "trang_thai": status_display,
-                                "thoi_gian_chay": f"{exec_time:.2f} ms",
+                                "thoi_gian_chay": f"{total_exec_time:.2f} ms",
                                 "thoi_gian_nop": time.strftime("%H:%M:%S %d/%m/%Y"),
                                 "nhan_xet_ai": feedback_text,
                                 "code_cpp": final_code_to_grade
@@ -473,8 +497,8 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                         st.rerun()
 
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Trạng Thái AI Chấm", res['trang_thai'], delta="Thành công" if res['diem'] > 0 else "Cần sửa", delta_color="normal")
-                m2.metric("Thời Gian Chạy Thực Tế", res['thoi_gian_chay'], delta="Tối ưu")
+                m1.metric("Kết Quả Testcase", res['trang_thai'], delta="Thành công" if res['diem'] > 0 else "Cần sửa", delta_color="normal")
+                m2.metric("Thời Gian Chạy Tổng 5 Test", res['thoi_gian_chay'], delta="Tối ưu")
                 m3.metric("Điểm Số Đạt Được", f"{res['diem']:.1f}/10")
                 
                 st.markdown("---")
@@ -573,8 +597,12 @@ else:
                 curr_p = {
                     "ten_bai": "", "io_mode": "Đọc/Ghi Tệp (.INP / .OUT)",
                     "file_inp": "BAILAM.INP", "file_out": "BAILAM.OUT",
-                    "de_bai": "", "sample_in_1": "", "sample_out_1": "",
-                    "sample_in_2": "", "sample_out_2": "", "sample_in_3": "", "sample_out_3": "",
+                    "de_bai": "", 
+                    "sample_in_1": "", "sample_out_1": "",
+                    "sample_in_2": "", "sample_out_2": "", 
+                    "sample_in_3": "", "sample_out_3": "",
+                    "sample_in_4": "", "sample_out_4": "",
+                    "sample_in_5": "", "sample_out_5": "",
                     "code_mau": ""
                 }
             else:
@@ -620,23 +648,34 @@ else:
 
             de_bai_val = st.text_area("📝 Nội dung Đề bài & Giới hạn:", value=extracted_text, height=240)
             
-            st.markdown("### 🧪 Cấu Hình 3 Bộ Test Mẫu (Sample Tests):")
-            st_t1, st_t2, st_t3 = st.tabs(["Bộ Test Mẫu 1", "Bộ Test Mẫu 2", "Bộ Test Mẫu 3"])
+            # 🌟 NÂNG CẤP THÀNH 5 BỘ TESTCASE CHÍNH THỨC
+            st.markdown("### 🧪 Cấu Hình 5 Bộ Testcase Chấm Điểm (Mỗi Test 2.0 Điểm):")
+            st_t1, st_t2, st_t3, st_t4, st_t5 = st.tabs(["Test 1", "Test 2", "Test 3", "Test 4", "Test 5"])
             
             with st_t1:
                 c1, c2 = st.columns(2)
-                in_1 = c1.text_area("📥 Sample Input 1:", value=curr_p['sample_in_1'], height=90)
-                out_1 = c2.text_area("📤 Sample Output 1:", value=curr_p['sample_out_1'], height=90)
+                in_1 = c1.text_area("📥 Input 1:", value=curr_p.get('sample_in_1', ''), height=90)
+                out_1 = c2.text_area("📤 Output 1:", value=curr_p.get('sample_out_1', ''), height=90)
 
             with st_t2:
                 c1, c2 = st.columns(2)
-                in_2 = c1.text_area("📥 Sample Input 2:", value=curr_p['sample_in_2'], height=90)
-                out_2 = c2.text_area("📤 Sample Output 2:", value=curr_p['sample_out_2'], height=90)
+                in_2 = c1.text_area("📥 Input 2:", value=curr_p.get('sample_in_2', ''), height=90)
+                out_2 = c2.text_area("📤 Output 2:", value=curr_p.get('sample_out_2', ''), height=90)
 
             with st_t3:
                 c1, c2 = st.columns(2)
-                in_3 = c1.text_area("📥 Sample Input 3:", value=curr_p['sample_in_3'], height=90)
-                out_3 = c2.text_area("📤 Sample Output 3:", value=curr_p['sample_out_3'], height=90)
+                in_3 = c1.text_area("📥 Input 3:", value=curr_p.get('sample_in_3', ''), height=90)
+                out_3 = c2.text_area("📤 Output 3:", value=curr_p.get('sample_out_3', ''), height=90)
+
+            with st_t4:
+                c1, c2 = st.columns(2)
+                in_4 = c1.text_area("📥 Input 4:", value=curr_p.get('sample_in_4', ''), height=90)
+                out_4 = c2.text_area("📤 Output 4:", value=curr_p.get('sample_out_4', ''), height=90)
+
+            with st_t5:
+                c1, c2 = st.columns(2)
+                in_5 = c1.text_area("📥 Input 5:", value=curr_p.get('sample_in_5', ''), height=90)
+                out_5 = c2.text_area("📤 Output 5:", value=curr_p.get('sample_out_5', ''), height=90)
 
             st.markdown("---")
             
@@ -672,17 +711,19 @@ else:
                             client = genai.Client(api_key=GEMINI_API_KEY)
                             verify_prompt = f"""
                             Bạn là Chuyên gia Đề thi Học sinh giỏi Tin học.
-                            Hãy thẩm định xem Đề bài, Code mẫu C++ và 3 bộ Sample Testcase dưới đây có KHỚP NHAU VÀ CHUẨN XÁC KỸ THUẬT không.
+                            Hãy thẩm định xem Đề bài, Code mẫu C++ và 5 bộ Testcase dưới đây có KHỚP NHAU VÀ CHUẨN XÁC KỸ THUẬT không.
 
                             [ĐỀ BÀI]: {de_bai_val}
                             [CODE MẪU C++]: {code_mau_val}
                             [TEST 1]: IN={in_1} | OUT={out_1}
                             [TEST 2]: IN={in_2} | OUT={out_2}
                             [TEST 3]: IN={in_3} | OUT={out_3}
+                            [TEST 4]: IN={in_4} | OUT={out_4}
+                            [TEST 5]: IN={in_5} | OUT={out_5}
 
                             Trả về kết quả ngắn gọn:
-                            1. Code mẫu có giải đúng yêu cầu đề bài không? (Chuẩn AC 100% hay có lỗi logic?)
-                            2. Kết quả các bộ Sample Testcase có chính xác với kết quả Code mẫu sinh ra không?
+                            1. Code mẫu có giải đúng yêu cầu đề bài không?
+                            2. Kết quả 5 bộ Testcase có chính xác với kết quả Code mẫu sinh ra không?
                             3. Kết luận: [CHUẨN ĐỂ ĐĂNG BÀI] hoặc [CẦN ĐIỀU CHỈNH].
                             """
                             clean_v_prompt = sanitize_text(verify_prompt)
@@ -708,6 +749,8 @@ else:
                             "sample_in_1": sanitize_text(in_1), "sample_out_1": sanitize_text(out_1),
                             "sample_in_2": sanitize_text(in_2), "sample_out_2": sanitize_text(out_2),
                             "sample_in_3": sanitize_text(in_3), "sample_out_3": sanitize_text(out_3),
+                            "sample_in_4": sanitize_text(in_4), "sample_out_4": sanitize_text(out_4),
+                            "sample_in_5": sanitize_text(in_5), "sample_out_5": sanitize_text(out_5),
                             "code_mau": sanitize_text(code_mau_val)
                         }
                         
@@ -777,15 +820,12 @@ else:
                         for idx, (u, p) in enumerate(st.session_state['student_accounts'].items())]
             st.dataframe(acc_data, use_container_width=True)
 
-        # 🌟 TAB MỚI: ĐA DẠNG CHỨC NĂNG THỐNG KÊ
         else:
             st.markdown("### 📊 Đa Dạng Khung Thống Kê & Báo Cáo")
             
-            # Tải dữ liệu nộp bài từ Firebase
             all_subs = db_get("submissions", st.session_state['submissions_db'])
             st.session_state['submissions_db'] = all_subs
             
-            # Chọn loại hình thống kê
             stat_mode = st.selectbox(
                 "🎯 Chọn góc nhìn thống kê:",
                 [
@@ -797,7 +837,6 @@ else:
             
             st.markdown("---")
             
-            # HƯỚNG 1: THỐNG KÊ THEO HỌC SINH
             if "1. 👤 Thống kê" in stat_mode:
                 st.markdown("### 👤 Báo Cáo Năng Lực Theo Học Sinh")
                 
@@ -808,8 +847,6 @@ else:
                     selected_st = st.selectbox("🎯 Chọn Học Sinh Cần Kiểm Tra:", all_student_list)
                     
                     st_subs = all_subs.get(selected_st, [])
-                    
-                    # Tính toán chỉ số thống kê
                     total_probs_db = len(st.session_state['problems_db'])
                     probs_attempted = set(s.get('ten_bai') for s in st_subs)
                     
@@ -823,7 +860,6 @@ else:
                     perfect_count = sum(1 for s in best_by_prob.values() if s.get('diem') == 10.0)
                     avg_score = (sum(s.get('diem', 0.0) for s in best_by_prob.values()) / len(best_by_prob)) if len(best_by_prob) > 0 else 0.0
                     
-                    # Hiển thị Metric tổng quan
                     c1, c2, c3, c4 = st.columns(4)
                     c1.metric("Số Bài Đã Làm", f"{len(probs_attempted)}/{total_probs_db} Bài")
                     c2.metric("Số Bài Đạt 10/10", f"{perfect_count} Bài")
@@ -860,7 +896,6 @@ else:
                             st.markdown("**📋 Đánh Giá Chi Tiết Từ AI:**")
                             st.markdown(best_sub_st.get('nhan_xet_ai', ''))
 
-            # HƯỚNG 2: THỐNG KÊ THEO ĐỀ BÀI TẬP
             elif "2. 📝 Thống kê" in stat_mode:
                 if len(st.session_state['problems_db']) == 0:
                     st.info("Chưa có bài tập nào để thống kê.")
@@ -916,7 +951,6 @@ else:
                             st.markdown("#### 📋 Đánh Giá Từ AI Của Lần Đạt Điểm Cao Nhất:")
                             st.markdown(st_info['best_feedback'])
 
-            # HƯỚNG 3: BẢNG XẾP HẠNG TỔNG SẮP CẢ LỚP
             else:
                 st.markdown("### 🏆 Bảng Xếp Hạng Tổng Sắp Đội Tuyển (Leaderboard)")
                 
@@ -946,10 +980,8 @@ else:
                             "Tổng Số Lần Nộp": len(st_subs)
                         })
                     
-                    # Sắp xếp thứ hạng theo Tổng điểm accumulative
                     leaderboard.sort(key=lambda x: (x["Tổng Điểm Tích Lũy"], x["Số Bài AC (10/10)"]), reverse=True)
                     
-                    # Thêm cột thứ hạng
                     lb_display = [{
                         "Hạng": "🥇 1" if i==0 else ("🥈 2" if i==1 else ("🥉 3" if i==2 else f"{i+1}")),
                         "Tên Học Sinh": item["Học Sinh"],

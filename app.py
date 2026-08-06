@@ -10,7 +10,6 @@ import unicodedata
 from pypdf import PdfReader
 import docx
 from google import genai
-from google.genai import types
 
 # ==========================================
 # 1. CẤU HÌNH TRANG WEB & TÙY CHỈNH CSS
@@ -341,49 +340,52 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
             st.markdown("---")
             st.subheader("💻 Nộp Mã Nguồn Bài Giải (C++)")
             
-            # Phiên bản key linh hoạt cho ô chỉnh sửa mã nguồn
-            version_key = f"code_version_p{prob['id']}"
-            if version_key not in st.session_state:
-                st.session_state[version_key] = 0
+            # Key reset linh hoạt
+            reset_ver_key = f"code_reset_v_{prob['id']}"
+            if reset_ver_key not in st.session_state:
+                st.session_state[reset_ver_key] = 0
 
             col_up, col_edit = st.columns([1, 2])
             
-            uploaded_code_text = ""
+            uploaded_file_code = ""
             with col_up:
                 st.markdown("**Cách 1: Tải tệp mã nguồn (.cpp):**")
-                cpp_file = st.file_uploader("Chọn file .cpp từ máy tính:", type=["cpp", "c", "txt"], key=f"uploader_{prob['id']}_{st.session_state[version_key]}")
+                cpp_file = st.file_uploader(
+                    "Chọn file .cpp từ máy tính:", 
+                    type=["cpp", "c", "txt"], 
+                    key=f"up_f_{prob['id']}_{st.session_state[reset_ver_key]}"
+                )
                 
                 if cpp_file is not None:
-                    raw_bytes = cpp_file.read()
+                    raw_bytes = cpp_file.getvalue()
                     try:
-                        uploaded_code_text = raw_bytes.decode('utf-8-sig')
+                        uploaded_file_code = raw_bytes.decode('utf-8-sig')
                     except UnicodeDecodeError:
-                        uploaded_code_text = raw_bytes.decode('latin-1', errors='ignore')
-                    uploaded_code_text = sanitize_text(uploaded_code_text)
+                        uploaded_file_code = raw_bytes.decode('latin-1', errors='ignore')
+                    uploaded_file_code = sanitize_text(uploaded_file_code)
                     st.success("✅ Đã nạp thành công code từ tệp!")
 
             with col_edit:
                 st.markdown("**Cách 2: Gõ/Dán code C++ trực tiếp:**")
                 
-                # Ưu tiên lấy nội dung vừa tải lên từ file để hiển thị vào ô soạn thảo
-                default_editor_val = uploaded_code_text if uploaded_code_text else ""
+                # Nạp mặc định từ file vừa tải nếu có
+                init_text_val = uploaded_file_code if uploaded_file_code else ""
                 
                 pasted_code = st.text_area(
                     "Khung chỉnh sửa mã nguồn:", 
                     height=260, 
-                    value=default_editor_val, 
+                    value=init_text_val, 
                     placeholder="// Nhập hoặc dán mã nguồn C++ của em vào đây...",
-                    key=f"text_area_{prob['id']}_{st.session_state[version_key]}"
+                    key=f"txt_area_{prob['id']}_{st.session_state[reset_ver_key]}"
                 )
                 
-                # 🌟 NÚT XOÁ SẠCH CẢ FILE UPLOAD LẪN KHUNG CODE
                 if st.button("🗑️ XOÁ SẠCH KHUNG CODE", type="secondary"):
-                    st.session_state[version_key] += 1
-                    st.toast("Đã xóa sạch mã nguồn!", icon="🧹")
+                    st.session_state[reset_ver_key] += 1
+                    st.toast("Đã xóa sạch khung mã nguồn!", icon="🧹")
                     st.rerun()
 
-            # 🌟 CHỌN CODE ĐỂ CHẤM: ƯU TIÊN FILE UPLOAD SAU ĐÓ TỚI KHUNG DÁN
-            final_code_to_grade = uploaded_code_text.strip() if uploaded_code_text.strip() else pasted_code.strip()
+            # 🌟 ĐỘC LẬP HOÀN TOÀN: ƯU TIÊN FILE TẢI LÊN -> RỒI MỚI LẤY TEXT DÁN
+            final_code_to_grade = uploaded_file_code.strip() if uploaded_file_code.strip() else pasted_code.strip()
 
             btn_submit = st.button("🚀 CHẤM BÀI & PHÂN TÍCH THUẬT TOÁN", type="primary", use_container_width=True)
 
@@ -438,30 +440,28 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             Hãy đưa ra nhận xét sư phạm chi tiết bằng Markdown theo 4 mục chuẩn sau:
                             ### 📌 1. ĐÁNH GIÁ CHUNG
                             * **Kết quả chấm máy:** Đạt {calculated_score}/10.0 điểm ({passed_tests}/5 bộ Testcase).
-                            * **Nhận xét nhanh:** <Lời động viên hoặc nhận xét tổng quan 1-2 câu>
+                            * **Nhận xét nhanh:** Lời động viên hoặc nhận xét tổng quan 1-2 câu.
 
                             ### 🔍 2. PHÂN TÍCH ĐỘ PHỨC TẠP THUẬT TOÁN
-                            * **Thời gian (Time Complexity):** $O(...)$
-                            * **Bộ nhớ (Space Complexity):** $O(...)$
-                            * **Đánh giá giới hạn:** <Nhận xét độ phù hợp với giới hạn N của bài>
+                            * **Thời gian (Time Complexity):** O(...)
+                            * **Bộ nhớ (Space Complexity):** O(...)
+                            * **Đánh giá giới hạn:** Nhận xét độ phù hợp với giới hạn N của bài.
 
                             ### 🛠️ 3. NHẬN XÉT CHI TIẾT BÀI LÀM
-                            * **Ưu điểm:** <Nêu ưu điểm cách đặt tên biến, cấu trúc code...>
-                            * **Hạn chế / Lỗi cần sửa:** <Chỉ ra cụ thể các dòng code chưa tối ưu hoặc thiếu edge case>
+                            * **Ưu điểm:** Nêu ưu điểm cách đặt tên biến, cấu trúc code...
+                            * **Hạn chế / Lỗi cần sửa:** Chỉ ra cụ thể các dòng code chưa tối ưu hoặc thiếu edge case.
 
                             ### 💡 4. HƯỚNG TỐI ƯU CỐT LÕI (GỢI Ý SƯ PHẠM)
-                            * **Ý tưởng cải tiến:** <Giải thích thuật toán tối ưu hơn nếu bài chưa đạt điểm tối đa>
-                            * **Kỹ thuật khuyến nghị:** <Nêu tên Thuật toán/Cấu trúc dữ liệu nên dùng>
+                            * **Ý tưởng cải tiến:** Giải thích thuật toán tối ưu hơn nếu bài chưa đạt điểm tối đa.
+                            * **Kỹ thuật khuyến nghị:** Nêu tên Thuật toán/Cấu trúc dữ liệu nên dùng.
                             """
                             
                             clean_prompt = sanitize_text(prompt_text)
 
+                            # 🌟 GỌI API CHUẨN ĐÃ FIX HOÀN TOÀN CLIENTERROR
                             response = client.models.generate_content(
                                 model="gemini-2.5-flash",
-                                contents=clean_prompt,
-                                config=types.GenerateContentConfig(
-                                    temperature=0.0
-                                )
+                                contents=clean_prompt
                             )
                             
                             feedback_text = response.text
@@ -893,7 +893,7 @@ else:
                         with col_c1:
                             st.markdown(f"**💻 Code C++ Đạt Điểm Cao Nhất ({best_sub_st.get('diem', 0.0):.1f}/10):**")
                             st.code(best_sub_st.get('code_cpp', '// Không có mã nguồn'), language='cpp')
-                        with col_c2:
+                        with col_detail_view:
                             st.markdown("**📋 Đánh Giá Chi Tiết Từ AI:**")
                             st.markdown(best_sub_st.get('nhan_xet_ai', ''))
 

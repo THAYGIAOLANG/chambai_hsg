@@ -9,7 +9,7 @@ import requests
 import unicodedata
 from pypdf import PdfReader
 import docx
-from google import genai
+import google.generativeai as genai
 
 # ==========================================
 # 1. CẤU HÌNH TRANG WEB & TÙY CHỈNH CSS
@@ -60,6 +60,9 @@ st.markdown("""
 
 raw_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
 GEMINI_API_KEY = "".join(c for c in raw_api_key if ord(c) < 128).strip()
+
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 TEACHER_PASSWORD = st.secrets.get("TEACHER_PASSWORD", "hoang123")
 FIREBASE_URL = st.secrets.get("FIREBASE_URL", "").rstrip("/")
@@ -340,52 +343,50 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
             st.markdown("---")
             st.subheader("💻 Nộp Mã Nguồn Bài Giải (C++)")
             
-            # Key reset linh hoạt
-            reset_ver_key = f"code_reset_v_{prob['id']}"
-            if reset_ver_key not in st.session_state:
-                st.session_state[reset_ver_key] = 0
+            code_state_key = f"code_text_store_{prob['id']}"
+            if code_state_key not in st.session_state:
+                st.session_state[code_state_key] = ""
 
             col_up, col_edit = st.columns([1, 2])
             
-            uploaded_file_code = ""
             with col_up:
                 st.markdown("**Cách 1: Tải tệp mã nguồn (.cpp):**")
                 cpp_file = st.file_uploader(
                     "Chọn file .cpp từ máy tính:", 
                     type=["cpp", "c", "txt"], 
-                    key=f"up_f_{prob['id']}_{st.session_state[reset_ver_key]}"
+                    key=f"up_f_{prob['id']}"
                 )
                 
                 if cpp_file is not None:
                     raw_bytes = cpp_file.getvalue()
                     try:
-                        uploaded_file_code = raw_bytes.decode('utf-8-sig')
+                        file_code_str = raw_bytes.decode('utf-8-sig')
                     except UnicodeDecodeError:
-                        uploaded_file_code = raw_bytes.decode('latin-1', errors='ignore')
-                    uploaded_file_code = sanitize_text(uploaded_file_code)
-                    st.success("✅ Đã nạp thành công code từ tệp!")
+                        file_code_str = raw_bytes.decode('latin-1', errors='ignore')
+                    file_code_str = sanitize_text(file_code_str)
+                    
+                    if st.session_state[code_state_key] != file_code_str:
+                        st.session_state[code_state_key] = file_code_str
+                        st.rerun()
 
             with col_edit:
                 st.markdown("**Cách 2: Gõ/Dán code C++ trực tiếp:**")
                 
-                # Nạp mặc định từ file vừa tải nếu có
-                init_text_val = uploaded_file_code if uploaded_file_code else ""
-                
                 pasted_code = st.text_area(
                     "Khung chỉnh sửa mã nguồn:", 
                     height=260, 
-                    value=init_text_val, 
+                    value=st.session_state[code_state_key], 
                     placeholder="// Nhập hoặc dán mã nguồn C++ của em vào đây...",
-                    key=f"txt_area_{prob['id']}_{st.session_state[reset_ver_key]}"
+                    key=f"txt_area_{prob['id']}"
                 )
+                st.session_state[code_state_key] = pasted_code
                 
                 if st.button("🗑️ XOÁ SẠCH KHUNG CODE", type="secondary"):
-                    st.session_state[reset_ver_key] += 1
+                    st.session_state[code_state_key] = ""
                     st.toast("Đã xóa sạch khung mã nguồn!", icon="🧹")
                     st.rerun()
 
-            # 🌟 ĐỘC LẬP HOÀN TOÀN: ƯU TIÊN FILE TẢI LÊN -> RỒI MỚI LẤY TEXT DÁN
-            final_code_to_grade = uploaded_file_code.strip() if uploaded_file_code.strip() else pasted_code.strip()
+            final_code_to_grade = st.session_state[code_state_key].strip()
 
             btn_submit = st.button("🚀 CHẤM BÀI & PHÂN TÍCH THUẬT TOÁN", type="primary", use_container_width=True)
 
@@ -407,7 +408,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                         else:
                             passed_tests = 0
                             total_exec_time = 0.0
-                            test_details = []
                             
                             for t_idx in range(1, 6):
                                 inp_k = prob.get(f"sample_in_{t_idx}", "").strip()
@@ -419,15 +419,10 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                                 is_correct = (status == "OK" and run_out.strip() == out_k)
                                 if is_correct:
                                     passed_tests += 1
-                                    test_details.append(f"* Test {t_idx}: 🟢 Đúng (+2.0 điểm) — {exec_t:.1f}ms")
-                                else:
-                                    test_details.append(f"* Test {t_idx}: 🔴 Sai / Lỗi ({status}) — {exec_t:.1f}ms")
 
                             calculated_score = float(passed_tests * 2.0)
                             status_display = f"AC ({passed_tests}/5 Test)" if passed_tests == 5 else f"WA ({passed_tests}/5 Test)"
 
-                            client = genai.Client(api_key=GEMINI_API_KEY)
-                            
                             prompt_text = f"""
                             Bạn là một Giáo viên dạy Bồi dưỡng Học sinh giỏi Tin học THCS/THPT chuyên nghiệp.
                             Bài làm C++ của học sinh đã được hệ thống chấm điểm tự động qua 5 bộ Testcase:
@@ -458,11 +453,9 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             
                             clean_prompt = sanitize_text(prompt_text)
 
-                            # 🌟 GỌI API CHUẨN ĐÃ FIX HOÀN TOÀN CLIENTERROR
-                            response = client.models.generate_content(
-                                model="gemini-2.5-flash",
-                                contents=clean_prompt
-                            )
+                            # 🌟 DÙNG MODEL GEMINI TƯƠNG THÍCH HOÀN HẢO KHÔNG CÒN LỖI CLIENTERROR
+                            model = genai.GenerativeModel('gemini-1.5-flash')
+                            response = model.generate_content(clean_prompt)
                             
                             feedback_text = response.text
 
@@ -709,7 +702,7 @@ else:
                         st.error("Chưa cấu hình GEMINI_API_KEY!")
                     else:
                         with st.spinner("🤖 AI đang thẩm định Code mẫu và khớp với các bộ Testcase..."):
-                            client = genai.Client(api_key=GEMINI_API_KEY)
+                            model = genai.GenerativeModel('gemini-1.5-flash')
                             verify_prompt = f"""
                             Bạn là Chuyên gia Đề thi Học sinh giỏi Tin học.
                             Hãy thẩm định xem Đề bài, Code mẫu C++ và 5 bộ Testcase dưới đây có KHỚP NHAU VÀ CHUẨN XÁC KỸ THUẬT không.
@@ -728,10 +721,7 @@ else:
                             3. Kết luận: [CHUẨN ĐỂ ĐĂNG BÀI] hoặc [CẦN ĐIỀU CHỈNH].
                             """
                             clean_v_prompt = sanitize_text(verify_prompt)
-                            check_res = client.models.generate_content(
-                                model="gemini-2.5-flash",
-                                contents=clean_v_prompt
-                            )
+                            check_res = model.generate_content(clean_v_prompt)
                             st.info("📋 **BÁO CÁO THẨM ĐỊNH TỪ AI:**")
                             st.markdown(check_res.text)
 
@@ -893,7 +883,7 @@ else:
                         with col_c1:
                             st.markdown(f"**💻 Code C++ Đạt Điểm Cao Nhất ({best_sub_st.get('diem', 0.0):.1f}/10):**")
                             st.code(best_sub_st.get('code_cpp', '// Không có mã nguồn'), language='cpp')
-                        with col_detail_view:
+                        with col_c2:
                             st.markdown("**📋 Đánh Giá Chi Tiết Từ AI:**")
                             st.markdown(best_sub_st.get('nhan_xet_ai', ''))
 

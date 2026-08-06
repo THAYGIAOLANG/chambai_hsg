@@ -341,17 +341,18 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
             st.markdown("---")
             st.subheader("💻 Nộp Mã Nguồn Bài Giải (C++)")
             
-            # Quản lý Session State cho ô Code
-            editor_key = f"code_val_prob_{prob['id']}"
-            if editor_key not in st.session_state:
-                st.session_state[editor_key] = ""
+            # Phiên bản key linh hoạt cho ô chỉnh sửa mã nguồn
+            version_key = f"code_version_p{prob['id']}"
+            if version_key not in st.session_state:
+                st.session_state[version_key] = 0
 
             col_up, col_edit = st.columns([1, 2])
             
             uploaded_code_text = ""
             with col_up:
                 st.markdown("**Cách 1: Tải tệp mã nguồn (.cpp):**")
-                cpp_file = st.file_uploader("Chọn file .cpp từ máy tính:", type=["cpp", "c", "txt"], key=f"uploader_{prob['id']}")
+                cpp_file = st.file_uploader("Chọn file .cpp từ máy tính:", type=["cpp", "c", "txt"], key=f"uploader_{prob['id']}_{st.session_state[version_key]}")
+                
                 if cpp_file is not None:
                     raw_bytes = cpp_file.read()
                     try:
@@ -359,31 +360,30 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                     except UnicodeDecodeError:
                         uploaded_code_text = raw_bytes.decode('latin-1', errors='ignore')
                     uploaded_code_text = sanitize_text(uploaded_code_text)
-                    
-                    # 🌟 KHI UPLOAD FILE MỚI -> CẬP NHẬT TRỰC TIẾP VÀ RERUN ĐỂ HIỆN TRÊN Ô KHUNG BÊN PHẢI
-                    if st.session_state[editor_key] != uploaded_code_text:
-                        st.session_state[editor_key] = uploaded_code_text
-                        st.rerun()
+                    st.success("✅ Đã nạp thành công code từ tệp!")
 
             with col_edit:
                 st.markdown("**Cách 2: Gõ/Dán code C++ trực tiếp:**")
+                
+                # Ưu tiên lấy nội dung vừa tải lên từ file để hiển thị vào ô soạn thảo
+                default_editor_val = uploaded_code_text if uploaded_code_text else ""
+                
                 pasted_code = st.text_area(
                     "Khung chỉnh sửa mã nguồn:", 
                     height=260, 
-                    value=st.session_state[editor_key], 
+                    value=default_editor_val, 
                     placeholder="// Nhập hoặc dán mã nguồn C++ của em vào đây...",
-                    key=f"text_area_widget_{prob['id']}"
+                    key=f"text_area_{prob['id']}_{st.session_state[version_key]}"
                 )
-                st.session_state[editor_key] = pasted_code
                 
-                # 🌟 NÚT XOÁ SẠCH KHUNG CODE
+                # 🌟 NÚT XOÁ SẠCH CẢ FILE UPLOAD LẪN KHUNG CODE
                 if st.button("🗑️ XOÁ SẠCH KHUNG CODE", type="secondary"):
-                    st.session_state[editor_key] = ""
-                    st.toast("Đã xóa sạch khung mã nguồn!", icon="🧹")
+                    st.session_state[version_key] += 1
+                    st.toast("Đã xóa sạch mã nguồn!", icon="🧹")
                     st.rerun()
 
-            # Lấy code cuối cùng để chấm điểm
-            final_code_to_grade = st.session_state[editor_key].strip()
+            # 🌟 CHỌN CODE ĐỂ CHẤM: ƯU TIÊN FILE UPLOAD SAU ĐÓ TỚI KHUNG DÁN
+            final_code_to_grade = uploaded_code_text.strip() if uploaded_code_text.strip() else pasted_code.strip()
 
             btn_submit = st.button("🚀 CHẤM BÀI & PHÂN TÍCH THUẬT TOÁN", type="primary", use_container_width=True)
 

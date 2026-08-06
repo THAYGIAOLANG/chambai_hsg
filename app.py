@@ -9,7 +9,7 @@ import requests
 import unicodedata
 from pypdf import PdfReader
 import docx
-import google.generativeai as genai
+from google import genai
 
 # ==========================================
 # 1. CẤU HÌNH TRANG WEB & TÙY CHỈNH CSS
@@ -60,9 +60,6 @@ st.markdown("""
 
 raw_api_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
 GEMINI_API_KEY = "".join(c for c in raw_api_key if ord(c) < 128).strip()
-
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
 
 TEACHER_PASSWORD = st.secrets.get("TEACHER_PASSWORD", "hoang123")
 FIREBASE_URL = st.secrets.get("FIREBASE_URL", "").rstrip("/")
@@ -343,7 +340,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
             st.markdown("---")
             st.subheader("💻 Nộp Mã Nguồn Bài Giải (C++)")
             
-            # Quản lý bộ nhớ tạm cho khung code
+            # Quản lý bộ nhớ tạm cho khung code theo ID bài
             code_store_key = f"code_val_prob_{prob['id']}"
             if code_store_key not in st.session_state:
                 st.session_state[code_store_key] = ""
@@ -358,7 +355,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                     key=f"uploader_prob_{prob['id']}"
                 )
                 
-                # 🌟 KHI UPLOAD FILE -> ÉP DỮ LIỆU ĐỌC TRỰC TIẾP VÀO SESSION STATE VÀ RERUN
+                # 🌟 KHI UPLOAD FILE -> ÉP ĐỌC VÀ LƯU THẲNG VÀO SESSION STATE VÀ RERUN TỰ ĐỘNG
                 if cpp_file is not None:
                     try:
                         raw_code_bytes = cpp_file.getvalue()
@@ -369,7 +366,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                         
                         file_str = sanitize_text(file_str)
                         
-                        # Nếu code trong file khác với code hiện tại -> tự động cập nhật
                         if st.session_state[code_store_key] != file_str:
                             st.session_state[code_store_key] = file_str
                             st.rerun()
@@ -388,7 +384,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                 )
                 st.session_state[code_store_key] = pasted_code
                 
-                # Nút Xóa sạch
                 if st.button("🗑️ XOÁ SẠCH KHUNG CODE", type="secondary"):
                     st.session_state[code_store_key] = ""
                     st.toast("Đã xóa sạch khung mã nguồn!", icon="🧹")
@@ -461,9 +456,12 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             
                             clean_prompt = sanitize_text(prompt_text)
 
-                            # 🌟 DÙNG GEMINI SDK AN TOÀN TUYỆT ĐỐI
-                            model = genai.GenerativeModel('gemini-1.5-flash')
-                            response = model.generate_content(clean_prompt)
+                            # 🌟 CẤU HÌNH SDK CHUẨN MỚI CỦA GOOGLE GENAI (KHÔNG LO LỖI NOT FOUND)
+                            client = genai.Client(api_key=GEMINI_API_KEY)
+                            response = client.models.generate_content(
+                                model="gemini-2.5-flash",
+                                contents=clean_prompt
+                            )
                             
                             feedback_text = response.text
 
@@ -710,7 +708,7 @@ else:
                         st.error("Chưa cấu hình GEMINI_API_KEY!")
                     else:
                         with st.spinner("🤖 AI đang thẩm định Code mẫu và khớp với các bộ Testcase..."):
-                            model = genai.GenerativeModel('gemini-1.5-flash')
+                            client = genai.Client(api_key=GEMINI_API_KEY)
                             verify_prompt = f"""
                             Bạn là Chuyên gia Đề thi Học sinh giỏi Tin học.
                             Hãy thẩm định xem Đề bài, Code mẫu C++ và 5 bộ Testcase dưới đây có KHỚP NHAU VÀ CHUẨN XÁC KỸ THUẬT không.
@@ -729,7 +727,10 @@ else:
                             3. Kết luận: [CHUẨN ĐỂ ĐĂNG BÀI] hoặc [CẦN ĐIỀU CHỈNH].
                             """
                             clean_v_prompt = sanitize_text(verify_prompt)
-                            check_res = model.generate_content(clean_v_prompt)
+                            check_res = client.models.generate_content(
+                                model="gemini-2.5-flash",
+                                contents=clean_v_prompt
+                            )
                             st.info("📋 **BÁO CÁO THẨM ĐỊNH TỪ AI:**")
                             st.markdown(check_res.text)
 

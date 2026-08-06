@@ -341,8 +341,8 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
             st.markdown("---")
             st.subheader("💻 Nộp Mã Nguồn Bài Giải (C++)")
             
-            # Quản lý state khung text code
-            editor_key = f"code_input_area_{prob['id']}"
+            # Quản lý Session State cho ô Code
+            editor_key = f"code_val_prob_{prob['id']}"
             if editor_key not in st.session_state:
                 st.session_state[editor_key] = ""
 
@@ -351,7 +351,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
             uploaded_code_text = ""
             with col_up:
                 st.markdown("**Cách 1: Tải tệp mã nguồn (.cpp):**")
-                cpp_file = st.file_uploader("Chọn file .cpp từ máy tính:", type=["cpp", "c", "txt"], key=f"up_{prob['id']}")
+                cpp_file = st.file_uploader("Chọn file .cpp từ máy tính:", type=["cpp", "c", "txt"], key=f"uploader_{prob['id']}")
                 if cpp_file is not None:
                     raw_bytes = cpp_file.read()
                     try:
@@ -359,8 +359,11 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                     except UnicodeDecodeError:
                         uploaded_code_text = raw_bytes.decode('latin-1', errors='ignore')
                     uploaded_code_text = sanitize_text(uploaded_code_text)
-                    st.session_state[editor_key] = uploaded_code_text
-                    st.success("✅ Đã nạp thành công code từ file!")
+                    
+                    # 🌟 KHI UPLOAD FILE MỚI -> CẬP NHẬT TRỰC TIẾP VÀ RERUN ĐỂ HIỆN TRÊN Ô KHUNG BÊN PHẢI
+                    if st.session_state[editor_key] != uploaded_code_text:
+                        st.session_state[editor_key] = uploaded_code_text
+                        st.rerun()
 
             with col_edit:
                 st.markdown("**Cách 2: Gõ/Dán code C++ trực tiếp:**")
@@ -369,8 +372,9 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                     height=260, 
                     value=st.session_state[editor_key], 
                     placeholder="// Nhập hoặc dán mã nguồn C++ của em vào đây...",
-                    key=f"text_area_{prob['id']}"
+                    key=f"text_area_widget_{prob['id']}"
                 )
+                st.session_state[editor_key] = pasted_code
                 
                 # 🌟 NÚT XOÁ SẠCH KHUNG CODE
                 if st.button("🗑️ XOÁ SẠCH KHUNG CODE", type="secondary"):
@@ -378,7 +382,8 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                     st.toast("Đã xóa sạch khung mã nguồn!", icon="🧹")
                     st.rerun()
 
-            final_code_to_grade = pasted_code.strip()
+            # Lấy code cuối cùng để chấm điểm
+            final_code_to_grade = st.session_state[editor_key].strip()
 
             btn_submit = st.button("🚀 CHẤM BÀI & PHÂN TÍCH THUẬT TOÁN", type="primary", use_container_width=True)
 
@@ -398,7 +403,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             st.error("❌ **LỖI BIÊN DỊCH (Compile Error):**")
                             st.code(compile_err, language="bash")
                         else:
-                            # 🌟 CHẤM BÀI QUA 5 TESTCASE CHÍNH THỨC (2.0 ĐIỂM / TEST)
                             passed_tests = 0
                             total_exec_time = 0.0
                             test_details = []
@@ -410,7 +414,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                                 status, run_out, exec_t = run_testcase("student.exec", inp_k)
                                 total_exec_time += exec_t
                                 
-                                # So sánh kết quả in ra với đáp án chuẩn
                                 is_correct = (status == "OK" and run_out.strip() == out_k)
                                 if is_correct:
                                     passed_tests += 1
@@ -421,7 +424,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             calculated_score = float(passed_tests * 2.0)
                             status_display = f"AC ({passed_tests}/5 Test)" if passed_tests == 5 else f"WA ({passed_tests}/5 Test)"
 
-                            # 🌟 THẦY AI CHỈ TẬP TRUNG NHẬN XẾT SƯ PHẠM VÀ HƯỚNG TỐI ƯU
                             client = genai.Client(api_key=GEMINI_API_KEY)
                             
                             prompt_text = f"""
@@ -648,7 +650,6 @@ else:
 
             de_bai_val = st.text_area("📝 Nội dung Đề bài & Giới hạn:", value=extracted_text, height=240)
             
-            # 🌟 NÂNG CẤP THÀNH 5 BỘ TESTCASE CHÍNH THỨC
             st.markdown("### 🧪 Cấu Hình 5 Bộ Testcase Chấm Điểm (Mỗi Test 2.0 Điểm):")
             st_t1, st_t2, st_t3, st_t4, st_t5 = st.tabs(["Test 1", "Test 2", "Test 3", "Test 4", "Test 5"])
             

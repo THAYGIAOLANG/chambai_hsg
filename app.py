@@ -264,7 +264,28 @@ else:
 # ==========================================
 if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
     if st.session_state['user_role'] != 'student':
-        st.warning("🔒 **YÊU CẦU ĐĂNG NHẬP:** Vui lòng đăng nhập tài khoản Học sinh ở thanh Menu bên trái để làm bài!")
+        # 🌟 HIỂN THỊ TRANG CHỦ SINH ĐỘNG KHÔNG CẦN LOGIN
+        st.warning("🔒 **YÊU CẦU ĐĂNG NHẬP:** Vui lòng đăng nhập tài khoản Học sinh ở thanh Menu bên trái để nộp bài & chấm điểm!")
+        
+        st.markdown("## 🆕 Danh Sách Bài Tập Mới Đăng Nổi Bật")
+        st.markdown("*(Đăng nhập ngay để thử sức và nhận nhận xét thuật toán từ Thầy AI nhé!)*")
+        
+        problems_list = st.session_state['problems_db']
+        if len(problems_list) == 0:
+            st.info("Chưa có bài tập nào được đăng.")
+        else:
+            # Hiển thị tối đa 5 bài mới nhất
+            recent_probs = list(reversed(problems_list))[:5]
+            
+            for idx, p in enumerate(recent_probs):
+                with st.expander(f"📌 **{p['ten_bai']}** — *(Hình thức: {p['io_mode']})*", expanded=(idx == 0)):
+                    st.markdown(f"**Nội dung xem trước đề bài:**")
+                    # Lấy ngắn gọn 200 ký tự đầu tiên
+                    short_de_bai = p['de_bai'][:220] + "..." if len(p['de_bai']) > 220 else p['de_bai']
+                    st.markdown(short_de_bai)
+                    
+                    st.caption("🔒 *Hãy đăng nhập tài khoản Học sinh ở khung bên trái để mở toàn bộ 5 Testcase và gửi bài nộp C++!*")
+                    
     elif len(st.session_state['problems_db']) == 0:
         st.info("📚 Hiện tại chưa có bài tập nào trong Ngân hàng đề thi.")
     else:
@@ -340,12 +361,10 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
             st.markdown("---")
             st.subheader("💻 Nộp Mã Nguồn Bài Giải (C++)")
             
-            # Key chính thức cho ô Text Area
             editor_widget_key = f"txt_area_widget_{prob['id']}"
             if editor_widget_key not in st.session_state:
                 st.session_state[editor_widget_key] = ""
 
-            # Theo dõi tên file đã nạp để phát hiện upload mới
             file_tracker_key = f"last_uploaded_file_{prob['id']}"
             if file_tracker_key not in st.session_state:
                 st.session_state[file_tracker_key] = None
@@ -361,7 +380,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                     key=f"uploader_prob_{prob['id']}"
                 )
                 
-                # 🌟 ĐỒNG BỘ TRỰC TIẾP TỪ FILE SANG TẠM VÀ Ô EDIT
                 if cpp_file is not None:
                     raw_bytes = cpp_file.getvalue()
                     try:
@@ -371,7 +389,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                     
                     uploaded_code_direct = sanitize_text(file_code_str)
                     
-                    # Nếu là file mới chọn lần đầu -> Ghi đè vào ô Text Area và Rerun lập tức!
                     if st.session_state[file_tracker_key] != cpp_file.name:
                         st.session_state[file_tracker_key] = cpp_file.name
                         st.session_state[editor_widget_key] = uploaded_code_direct
@@ -393,7 +410,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                     st.toast("Đã xóa sạch khung mã nguồn!", icon="🧹")
                     st.rerun()
 
-            # Lấy code để chấm: Ưu tiên nội dung đang có ở Text Area, nếu rỗng lấy từ file upload
             final_code_to_grade = pasted_code.strip() if pasted_code.strip() else uploaded_code_direct.strip()
 
             btn_submit = st.button("🚀 CHẤM BÀI & PHÂN TÍCH THUẬT TOÁN", type="primary", use_container_width=True)
@@ -405,7 +421,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                     st.error("⚠️ Hệ thống chưa cấu hình `GEMINI_API_KEY`!")
                 else:
                     with st.spinner("⏳ Đang biên dịch C++ và chấm qua 5 bộ Testcase..."):
-                        with open("student.cpp", "w", encoding="utf-8") as f:
+                        with open("student.cpp", "w", encoding="utf-訴-8" if False else "utf-8") as f:
                             f.write(final_code_to_grade)
                         
                         compile_success, compile_err = compile_cpp("student.cpp", "student.exec")

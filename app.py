@@ -343,9 +343,10 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
             st.markdown("---")
             st.subheader("💻 Nộp Mã Nguồn Bài Giải (C++)")
             
-            code_state_key = f"code_text_store_{prob['id']}"
-            if code_state_key not in st.session_state:
-                st.session_state[code_state_key] = ""
+            # Quản lý bộ nhớ tạm cho khung code
+            code_store_key = f"code_val_prob_{prob['id']}"
+            if code_store_key not in st.session_state:
+                st.session_state[code_store_key] = ""
 
             col_up, col_edit = st.columns([1, 2])
             
@@ -354,20 +355,26 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                 cpp_file = st.file_uploader(
                     "Chọn file .cpp từ máy tính:", 
                     type=["cpp", "c", "txt"], 
-                    key=f"up_f_{prob['id']}"
+                    key=f"uploader_prob_{prob['id']}"
                 )
                 
+                # 🌟 KHI UPLOAD FILE -> ÉP DỮ LIỆU ĐỌC TRỰC TIẾP VÀO SESSION STATE VÀ RERUN
                 if cpp_file is not None:
-                    raw_bytes = cpp_file.getvalue()
                     try:
-                        file_code_str = raw_bytes.decode('utf-8-sig')
-                    except UnicodeDecodeError:
-                        file_code_str = raw_bytes.decode('latin-1', errors='ignore')
-                    file_code_str = sanitize_text(file_code_str)
-                    
-                    if st.session_state[code_state_key] != file_code_str:
-                        st.session_state[code_state_key] = file_code_str
-                        st.rerun()
+                        raw_code_bytes = cpp_file.getvalue()
+                        try:
+                            file_str = raw_code_bytes.decode('utf-8-sig')
+                        except UnicodeDecodeError:
+                            file_str = raw_code_bytes.decode('latin-1', errors='ignore')
+                        
+                        file_str = sanitize_text(file_str)
+                        
+                        # Nếu code trong file khác với code hiện tại -> tự động cập nhật
+                        if st.session_state[code_store_key] != file_str:
+                            st.session_state[code_store_key] = file_str
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Lỗi đọc file: {e}")
 
             with col_edit:
                 st.markdown("**Cách 2: Gõ/Dán code C++ trực tiếp:**")
@@ -375,18 +382,19 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                 pasted_code = st.text_area(
                     "Khung chỉnh sửa mã nguồn:", 
                     height=260, 
-                    value=st.session_state[code_state_key], 
+                    value=st.session_state[code_store_key], 
                     placeholder="// Nhập hoặc dán mã nguồn C++ của em vào đây...",
-                    key=f"txt_area_{prob['id']}"
+                    key=f"txt_area_widget_{prob['id']}"
                 )
-                st.session_state[code_state_key] = pasted_code
+                st.session_state[code_store_key] = pasted_code
                 
+                # Nút Xóa sạch
                 if st.button("🗑️ XOÁ SẠCH KHUNG CODE", type="secondary"):
-                    st.session_state[code_state_key] = ""
+                    st.session_state[code_store_key] = ""
                     st.toast("Đã xóa sạch khung mã nguồn!", icon="🧹")
                     st.rerun()
 
-            final_code_to_grade = st.session_state[code_state_key].strip()
+            final_code_to_grade = st.session_state[code_store_key].strip()
 
             btn_submit = st.button("🚀 CHẤM BÀI & PHÂN TÍCH THUẬT TOÁN", type="primary", use_container_width=True)
 
@@ -453,7 +461,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             
                             clean_prompt = sanitize_text(prompt_text)
 
-                            # 🌟 DÙNG MODEL GEMINI TƯƠNG THÍCH HOÀN HẢO KHÔNG CÒN LỖI CLIENTERROR
+                            # 🌟 DÙNG GEMINI SDK AN TOÀN TUYỆT ĐỐI
                             model = genai.GenerativeModel('gemini-1.5-flash')
                             response = model.generate_content(clean_prompt)
                             

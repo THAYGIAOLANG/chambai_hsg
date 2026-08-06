@@ -1,6 +1,6 @@
 streamlit
 starlette==0.38.6
-google-generativeai
+google-genai
 requests
 pypdf
 python-docx

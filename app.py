@@ -529,11 +529,9 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             
                             clean_prompt = sanitize_text(prompt_text)
 
-                            # 🌟 KHỐI CẢI TIẾN TRÁNH SẬP WEB KHI GỌI GEMINI API
                             feedback_text = ""
                             try:
                                 client = genai.Client(api_key=GEMINI_API_KEY)
-                                # Thử model gemini-2.5-flash chuẩn trước
                                 try:
                                     response = client.models.generate_content(
                                         model="gemini-2.5-flash",
@@ -541,14 +539,13 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                                     )
                                     feedback_text = response.text
                                 except Exception:
-                                    # Fallback sang gemini-1.5-flash nếu cần
                                     response = client.models.generate_content(
                                         model="gemini-1.5-flash",
                                         contents=clean_prompt
                                     )
                                     feedback_text = response.text
                             except Exception as ai_err:
-                                feedback_text = f"### 📌 1. ĐÁNH GIÁ CHUNG\n* **Kết quả chấm máy:** Đạt {calculated_score}/10.0 điểm ({passed_tests}/5 bộ Testcase).\n* **Ghi chú:** *(Hệ thống AI nhận xét tạm thời bận, kết quả điểm 5 testcase vẫn được ghi nhận chuẩn xác 100%)*"
+                                feedback_text = f"### 📌 1. ĐÁNH GIÁ CHUNG\n* **Kết quả chấm máy:** Đạt {calculated_score}/10.0 điểm ({passed_tests}/5 bộ Testcase).\n* **Ghi chú:** Kết quả chấm máy ({calculated_score}/10) đã được ghi nhận thành công."
 
                             if student_id not in st.session_state['submissions_db']:
                                 st.session_state['submissions_db'][student_id] = []
@@ -598,8 +595,15 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                         st.toast("Đã xóa báo cáo cũ. Em hãy sửa lại code và bấm CHẤM BÀI nhé!", icon="✨")
                         st.rerun()
 
+                # 🌟 ĐIỀU CHỈNH UI Metric HIỂN THỊ CHÍNH XÁC NHÃN KẾT QUẢ
                 m1, m2, m3 = st.columns(3)
-                m1.metric("Kết Quả Testcase", res['trang_thai'], delta="Thành công" if res['diem'] > 0 else "Cần sửa", delta_color="normal")
+                is_perfect = (res['diem'] == 10.0)
+                m1.metric(
+                    "Kết Quả Testcase", 
+                    res['trang_thai'], 
+                    delta="🟢 Đạt điểm tối đa (AC)" if is_perfect else "🔴 Chưa đạt (WA)", 
+                    delta_color="normal" if is_perfect else "inverse"
+                )
                 m2.metric("Thời Gian Chạy Tổng 5 Test", res['thoi_gian_chay'], delta="Tối ưu")
                 m3.metric("Điểm Số Đạt Được", f"{res['diem']:.1f}/10")
                 
@@ -745,7 +749,7 @@ else:
                     elif uploaded_file.name.endswith(".docx"):
                         extracted_text = extract_text_from_docx(uploaded_file)
                     elif uploaded_file.name.endswith(".txt"):
-                        extracted_text = sanitize_text(uploaded_file.read().decode("utf-8", errors="ignore"))
+                        extracted_text = sanitize_text(uploaded_file.read().decode("utf-utf-8" if False else "utf-8", errors="ignore"))
                     st.success("✅ Đã trích xuất xong đề từ file!")
 
             de_bai_val = st.text_area("📝 Nội dung Đề bài & Giới hạn:", value=extracted_text, height=240)

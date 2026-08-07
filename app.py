@@ -78,6 +78,13 @@ def sanitize_text(text):
     text = unicodedata.normalize('NFC', text)
     return text.encode('utf-8', 'ignore').decode('utf-8')
 
+def normalize_output(text):
+    """Chuẩn hóa dữ liệu ra để so sánh chính xác tuyệt đối"""
+    if not text:
+        return ""
+    lines = [line.strip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    return "\n".join([l for l in lines if l != ""]).strip()
+
 # ==========================================
 # 2. XỬ LÝ LƯU TRỮ ĐÁM MÂY VĨNH VIỄN QUA FIREBASE
 # ==========================================
@@ -191,11 +198,20 @@ def compile_cpp(cpp_file, exec_file):
     except Exception as e:
         return False, str(e)
 
-def run_testcase(exec_file, input_data, time_limit=1.0):
+def run_testcase(exec_file, input_data, io_mode="cin/cout", file_inp="BAILAM.INP", file_out="BAILAM.OUT", time_limit=1.0):
     if os.name == 'nt' and not exec_file.endswith('.exe'):
         exec_file += '.exe'
     
     cmd_run = f'"{os.path.abspath(exec_file)}"' if os.name == 'nt' else f'./{exec_file}'
+    
+    # Nếu bài yêu cầu đọc tệp .INP -> Ghi tệp tạm trước khi chạy
+    if io_mode == "Đọc/Ghi Tệp (.INP / .OUT)" and file_inp:
+        try:
+            with open(file_inp, "w", encoding="utf-8") as f:
+                f.write(input_data)
+        except Exception:
+            pass
+
     try:
         start_time = time.time()
         process = subprocess.run(
@@ -207,9 +223,22 @@ def run_testcase(exec_file, input_data, time_limit=1.0):
             timeout=time_limit
         )
         exec_time = (time.time() - start_time) * 1000
+        
         if process.returncode != 0:
             return "RTE", "", exec_time
-        return "OK", process.stdout.strip(), exec_time
+
+        output_res = process.stdout.strip()
+        
+        # Nếu đọc từ tệp .OUT
+        if io_mode == "Đọc/Ghi Tệp (.INP / .OUT)" and file_out and os.path.exists(file_out):
+            try:
+                with open(file_out, "r", encoding="utf-8") as f:
+                    output_res = f.read().strip()
+            except Exception:
+                pass
+
+        return "OK", output_res, exec_time
+
     except subprocess.TimeoutExpired:
         return "TLE", "", time_limit * 1000
     except Exception as e:
@@ -485,14 +514,19 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             passed_tests = 0
                             total_exec_time = 0.0
                             
+                            io_m = prob.get("io_mode", "cin/cout")
+                            f_in = prob.get("file_inp", "BAILAM.INP")
+                            f_out = prob.get("file_out", "BAILAM.OUT")
+
                             for t_idx in range(1, 6):
                                 inp_k = prob.get(f"sample_in_{t_idx}", "").strip()
                                 out_k = prob.get(f"sample_out_{t_idx}", "").strip()
                                 
-                                status, run_out, exec_t = run_testcase("student.exec", inp_k)
+                                status, run_out, exec_t = run_testcase("student.exec", inp_k, io_m, f_in, f_out)
                                 total_exec_time += exec_t
                                 
-                                is_correct = (status == "OK" and run_out.strip() == out_k)
+                                # So sánh đáp án sau khi chuẩn hóa khoảng trắng & dòng trống
+                                is_correct = (status == "OK" and normalize_output(run_out) == normalize_output(out_k))
                                 if is_correct:
                                     passed_tests += 1
 
@@ -545,7 +579,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                                     )
                                     feedback_text = response.text
                             except Exception as ai_err:
-                                feedback_text = f"### 📌 1. ĐÁNH GIÁ CHUNG\n* **Kết quả chấm máy:** Đạt {calculated_score}/10.0 điểm ({passed_tests}/5 bộ Testcase).\n* **Ghi chú:** Kết quả chấm máy ({calculated_score}/10) đã được ghi nhận thành công."
+                                feedback_text = f"### 📌 1. ĐÁNH GIÁ CHUNG\n* **Kết quả chấm máy:** Đạt {calculated_score}/10.0 điểm ({passed_tests}/5 bộ Testcase).\n* **Ghi chú:** Báo cáo phân tích thuật toán từ Thầy AI đang khởi tạo."
 
                             if student_id not in st.session_state['submissions_db']:
                                 st.session_state['submissions_db'][student_id] = []
@@ -595,7 +629,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                         st.toast("Đã xóa báo cáo cũ. Em hãy sửa lại code và bấm CHẤM BÀI nhé!", icon="✨")
                         st.rerun()
 
-                # 🌟 ĐIỀU CHỈNH UI Metric HIỂN THỊ CHÍNH XÁC NHÃN KẾT QUẢ
                 m1, m2, m3 = st.columns(3)
                 is_perfect = (res['diem'] == 10.0)
                 m1.metric(
@@ -749,7 +782,7 @@ else:
                     elif uploaded_file.name.endswith(".docx"):
                         extracted_text = extract_text_from_docx(uploaded_file)
                     elif uploaded_file.name.endswith(".txt"):
-                        extracted_text = sanitize_text(uploaded_file.read().decode("utf-utf-8" if False else "utf-8", errors="ignore"))
+                        extracted_text = sanitize_text(uploaded_file.read().decode("utf-8", errors="ignore"))
                     st.success("✅ Đã trích xuất xong đề từ file!")
 
             de_bai_val = st.text_area("📝 Nội dung Đề bài & Giới hạn:", value=extracted_text, height=240)

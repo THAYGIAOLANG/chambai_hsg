@@ -240,7 +240,6 @@ def get_top_students(top_n=2):
                 "total_subs": len(st_subs)
             })
             
-    # Ưu tiên: Bài AC -> Tổng điểm -> Tổng lượt nộp bài
     leaderboard.sort(key=lambda x: (x["ac_count"], x["total_score"], x["total_subs"]), reverse=True)
     return leaderboard[:top_n]
 
@@ -306,7 +305,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
     if st.session_state['user_role'] != 'student':
         st.warning("🔒 **YÊU CẦU ĐĂNG NHẬP:** Vui lòng đăng nhập tài khoản Học sinh ở thanh Menu bên trái để nộp bài & chấm điểm!")
         
-        # 🌟 BẢNG VINH DANH TOP HỌC SINH TÍCH CỰC TRÊN TRANG CHỦ
         top_limit = st.session_state.get('top_display_count', 2)
         top_students = get_top_students(top_limit)
         
@@ -531,13 +529,26 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             
                             clean_prompt = sanitize_text(prompt_text)
 
-                            client = genai.Client(api_key=GEMINI_API_KEY)
-                            response = client.models.generate_content(
-                                model="gemini-2.5-flash",
-                                contents=clean_prompt
-                            )
-                            
-                            feedback_text = response.text
+                            # 🌟 KHỐI CẢI TIẾN TRÁNH SẬP WEB KHI GỌI GEMINI API
+                            feedback_text = ""
+                            try:
+                                client = genai.Client(api_key=GEMINI_API_KEY)
+                                # Thử model gemini-2.5-flash chuẩn trước
+                                try:
+                                    response = client.models.generate_content(
+                                        model="gemini-2.5-flash",
+                                        contents=clean_prompt
+                                    )
+                                    feedback_text = response.text
+                                except Exception:
+                                    # Fallback sang gemini-1.5-flash nếu cần
+                                    response = client.models.generate_content(
+                                        model="gemini-1.5-flash",
+                                        contents=clean_prompt
+                                    )
+                                    feedback_text = response.text
+                            except Exception as ai_err:
+                                feedback_text = f"### 📌 1. ĐÁNH GIÁ CHUNG\n* **Kết quả chấm máy:** Đạt {calculated_score}/10.0 điểm ({passed_tests}/5 bộ Testcase).\n* **Ghi chú:** *(Hệ thống AI nhận xét tạm thời bận, kết quả điểm 5 testcase vẫn được ghi nhận chuẩn xác 100%)*"
 
                             if student_id not in st.session_state['submissions_db']:
                                 st.session_state['submissions_db'][student_id] = []
@@ -553,7 +564,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                                 "code_cpp": final_code_to_grade
                             }
                             
-                            # 🌟 LOGIC ĐIỀU CHỈNH: CHỈ LƯU / CẬP NHẬT KHI ĐIỂM CAO HƠN HOẶC TỐI ƯU THỜI GIAN CHẠY HƠN
                             st_subs = st.session_state['submissions_db'][student_id]
                             existing_idx = next((i for i, s in enumerate(st_subs) if s['ten_bai'] == prob['ten_bai']), -1)
                             
@@ -564,7 +574,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                                 old_score = old_rec.get('diem', 0.0)
                                 old_ms = old_rec.get('exec_ms', 999999.0)
                                 
-                                # Ưu tiên điểm cao hơn OR bằng điểm nhưng chạy nhanh hơn
                                 if (calculated_score > old_score) or (calculated_score == old_score and total_exec_time < old_ms):
                                     st_subs[existing_idx] = sub_record
                                     st.toast("🎉 Đã cập nhật kỷ lục bài làm tốt nhất của em!", icon="🏆")
@@ -800,31 +809,34 @@ else:
                         st.error("Chưa cấu hình GEMINI_API_KEY!")
                     else:
                         with st.spinner("🤖 AI đang thẩm định Code mẫu và khớp với các bộ Testcase..."):
-                            client = genai.Client(api_key=GEMINI_API_KEY)
-                            verify_prompt = f"""
-                            Bạn là Chuyên gia Đề thi Học sinh giỏi Tin học.
-                            Hãy thẩm định xem Đề bài, Code mẫu C++ và 5 bộ Testcase dưới đây có KHỚP NHAU VÀ CHUẨN XÁC KỸ THUẬT không.
+                            try:
+                                client = genai.Client(api_key=GEMINI_API_KEY)
+                                verify_prompt = f"""
+                                Bạn là Chuyên gia Đề thi Học sinh giỏi Tin học.
+                                Hãy thẩm định xem Đề bài, Code mẫu C++ và 5 bộ Testcase dưới đây có KHỚP NHAU VÀ CHUẨN XÁC KỸ THUẬT không.
 
-                            [ĐỀ BÀI]: {de_bai_val}
-                            [CODE MẪU C++]: {code_mau_val}
-                            [TEST 1]: IN={in_1} | OUT={out_1}
-                            [TEST 2]: IN={in_2} | OUT={out_2}
-                            [TEST 3]: IN={in_3} | OUT={out_3}
-                            [TEST 4]: IN={in_4} | OUT={out_4}
-                            [TEST 5]: IN={in_5} | OUT={out_5}
+                                [ĐỀ BÀI]: {de_bai_val}
+                                [CODE MẪU C++]: {code_mau_val}
+                                [TEST 1]: IN={in_1} | OUT={out_1}
+                                [TEST 2]: IN={in_2} | OUT={out_2}
+                                [TEST 3]: IN={in_3} | OUT={out_3}
+                                [TEST 4]: IN={in_4} | OUT={out_4}
+                                [TEST 5]: IN={in_5} | OUT={out_5}
 
-                            Trả về kết quả ngắn gọn:
-                            1. Code mẫu có giải đúng yêu cầu đề bài không?
-                            2. Kết quả 5 bộ Testcase có chính xác với kết quả Code mẫu sinh ra không?
-                            3. Kết luận: [CHUẨN ĐỂ ĐĂNG BÀI] hoặc [CẦN ĐIỀU CHỈNH].
-                            """
-                            clean_v_prompt = sanitize_text(verify_prompt)
-                            check_res = client.models.generate_content(
-                                model="gemini-2.5-flash",
-                                contents=clean_v_prompt
-                            )
-                            st.info("📋 **BÁO CÁO THẨM ĐỊNH TỪ AI:**")
-                            st.markdown(check_res.text)
+                                Trả về kết quả ngắn gọn:
+                                1. Code mẫu có giải đúng yêu cầu đề bài không?
+                                2. Kết quả 5 bộ Testcase có chính xác với kết quả Code mẫu sinh ra không?
+                                3. Kết luận: [CHUẨN ĐỂ ĐĂNG BÀI] hoặc [CẦN ĐIỀU CHỈNH].
+                                """
+                                clean_v_prompt = sanitize_text(verify_prompt)
+                                check_res = client.models.generate_content(
+                                    model="gemini-2.5-flash",
+                                    contents=clean_v_prompt
+                                )
+                                st.info("📋 **BÁO CÁO THẨM ĐỊNH TỪ AI:**")
+                                st.markdown(check_res.text)
+                            except Exception as ex:
+                                st.error(f"Lỗi thẩm định AI: {ex}")
 
             with col_save:
                 if st.button("💾 LƯU BÀI TẬP VÀO FIREBASE (VĨNH VIỄN 100%)", type="primary", use_container_width=True):
@@ -912,7 +924,6 @@ else:
                         for idx, (u, p) in enumerate(st.session_state['student_accounts'].items())]
             st.dataframe(acc_data, use_container_width=True)
 
-        # 🌟 TAB MỚI: TÙY CHỈNH THỐNG KÊ & SỐ LƯỢNG HỌC SINH VINH DANH TRANG CHỦ
         else:
             st.markdown("### ⚙️ Cấu Hình Vinh Danh Trang Chủ & Báo Cáo Thống Kê")
             

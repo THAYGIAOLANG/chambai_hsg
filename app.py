@@ -79,7 +79,6 @@ def sanitize_text(text):
     return text.encode('utf-8', 'ignore').decode('utf-8')
 
 def normalize_output(text):
-    """Chuẩn hóa dữ liệu ra để so sánh chính xác tuyệt đối"""
     if not text:
         return ""
     lines = [line.strip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
@@ -204,7 +203,6 @@ def run_testcase(exec_file, input_data, io_mode="cin/cout", file_inp="BAILAM.INP
     
     cmd_run = f'"{os.path.abspath(exec_file)}"' if os.name == 'nt' else f'./{exec_file}'
     
-    # Nếu bài yêu cầu đọc tệp .INP -> Ghi tệp tạm trước khi chạy
     if io_mode == "Đọc/Ghi Tệp (.INP / .OUT)" and file_inp:
         try:
             with open(file_inp, "w", encoding="utf-8") as f:
@@ -229,7 +227,6 @@ def run_testcase(exec_file, input_data, io_mode="cin/cout", file_inp="BAILAM.INP
 
         output_res = process.stdout.strip()
         
-        # Nếu đọc từ tệp .OUT
         if io_mode == "Đọc/Ghi Tệp (.INP / .OUT)" and file_out and os.path.exists(file_out):
             try:
                 with open(file_out, "r", encoding="utf-8") as f:
@@ -513,6 +510,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                         else:
                             passed_tests = 0
                             total_exec_time = 0.0
+                            test_results_detail = []
                             
                             io_m = prob.get("io_mode", "cin/cout")
                             f_in = prob.get("file_inp", "BAILAM.INP")
@@ -525,40 +523,28 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                                 status, run_out, exec_t = run_testcase("student.exec", inp_k, io_m, f_in, f_out)
                                 total_exec_time += exec_t
                                 
-                                # So sánh đáp án sau khi chuẩn hóa khoảng trắng & dòng trống
                                 is_correct = (status == "OK" and normalize_output(run_out) == normalize_output(out_k))
                                 if is_correct:
                                     passed_tests += 1
+                                    test_results_detail.append({"test": t_idx, "status": "🟢 Đúng (AC)", "time": f"{exec_t:.1f} ms"})
+                                else:
+                                    fail_type = "🔴 Sai kết quả (WA)" if status == "OK" else f"🔴 Lỗi chạy ({status})"
+                                    test_results_detail.append({"test": t_idx, "status": fail_type, "time": f"{exec_t:.1f} ms"})
 
                             calculated_score = float(passed_tests * 2.0)
                             status_display = f"AC ({passed_tests}/5 Test)" if passed_tests == 5 else f"WA ({passed_tests}/5 Test)"
 
+                            # 🌟 PROMPT SIÊU CẮT GỌT: TẬP TRUNG 100% VÀO THUẬT TOÁN HỌC SINH CẦN TỚI
                             prompt_text = f"""
-                            Bạn là một Giáo viên dạy Bồi dưỡng Học sinh giỏi Tin học THCS/THPT chuyên nghiệp.
-                            Bài làm C++ của học sinh đã được hệ thống chấm điểm tự động qua 5 bộ Testcase:
-                            - Số test đúng: {passed_tests}/5
-                            - Điểm số: {calculated_score}/10.0
+                            Bạn là Giáo viên Tin học. Nhận xét cực kỳ ngắn gọn bài C++ dưới đây:
+                            [ĐỀ BÀI]: {prob['de_bai'][:150]}
+                            [KẾT QUẢ CHẤM]: {passed_tests}/5 test đúng ({calculated_score}/10đ).
+                            [CODE HỌC SINH]:
+                            {final_code_to_grade}
 
-                            [ĐỀ BÀI]: {prob['de_bai']}
-                            [MÃ NGUỒN HỌC SINH]: {final_code_to_grade}
-
-                            Hãy đưa ra nhận xét sư phạm chi tiết bằng Markdown theo 4 mục chuẩn sau:
-                            ### 📌 1. ĐÁNH GIÁ CHUNG
-                            * **Kết quả chấm máy:** Đạt {calculated_score}/10.0 điểm ({passed_tests}/5 bộ Testcase).
-                            * **Nhận xét nhanh:** Lời động viên hoặc nhận xét tổng quan 1-2 câu.
-
-                            ### 🔍 2. PHÂN TÍCH ĐỘ PHỨC TẠP THUẬT TOÁN
-                            * **Thời gian (Time Complexity):** O(...)
-                            * **Bộ nhớ (Space Complexity):** O(...)
-                            * **Đánh giá giới hạn:** Nhận xét độ phù hợp với giới hạn N của bài.
-
-                            ### 🛠️ 3. NHẬN XÉT CHI TIẾT BÀI LÀM
-                            * **Ưu điểm:** Nêu ưu điểm cách đặt tên biến, cấu trúc code...
-                            * **Hạn chế / Lỗi cần sửa:** Chỉ ra cụ thể các dòng code chưa tối ưu hoặc thiếu edge case.
-
-                            ### 💡 4. HƯỚNG TỐI ƯU CỐT LÕI (GỢI Ý SƯ PHẠM)
-                            * **Ý tưởng cải tiến:** Giải thích thuật toán tối ưu hơn nếu bài chưa đạt điểm tối đa.
-                            * **Kỹ thuật khuyến nghị:** Nêu tên Thuật toán/Cấu trúc dữ liệu nên dùng.
+                            YÊU CẦU TRẢ VỀ DẠNG MARKDOWN CẮT GỌT TỐI ĐA (TỔNG KHÔNG QUÁ 3-4 DÒNG):
+                            * **🔍 Đánh giá nhanh:** <Nhận xét 1 câu về nguyên nhân sai nếu chưa AC>
+                            * **💡 Tối ưu thuật toán:** <Chỉ ra 1 ý tưởng thuật toán/độ phức tạp O() để đạt 10/10 điểm>
                             """
                             
                             clean_prompt = sanitize_text(prompt_text)
@@ -578,8 +564,8 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                                         contents=clean_prompt
                                     )
                                     feedback_text = response.text
-                            except Exception as ai_err:
-                                feedback_text = f"### 📌 1. ĐÁNH GIÁ CHUNG\n* **Kết quả chấm máy:** Đạt {calculated_score}/10.0 điểm ({passed_tests}/5 bộ Testcase).\n* **Ghi chú:** Báo cáo phân tích thuật toán từ Thầy AI đang khởi tạo."
+                            except Exception:
+                                feedback_text = "* **🔍 Đánh giá nhanh:** Bài làm chưa tối ưu trọn vẹn các bộ test.\n* **💡 Tối ưu thuật toán:** Hãy kiểm tra lại kiểu dữ liệu (long long) hoặc thuật toán tối ưu $O(N)$."
 
                             if student_id not in st.session_state['submissions_db']:
                                 st.session_state['submissions_db'][student_id] = []
@@ -592,6 +578,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                                 "exec_ms": total_exec_time,
                                 "thoi_gian_nop": time.strftime("%H:%M:%S %d/%m/%Y"),
                                 "nhan_xet_ai": feedback_text,
+                                "test_details": test_results_detail,
                                 "code_cpp": final_code_to_grade
                             }
                             
@@ -621,7 +608,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                 col_res_title, col_reset_btn = st.columns([3, 1])
                 
                 with col_res_title:
-                    st.subheader("📊 BÁO CÁO CHẨN ĐOÁN & ĐÁNH GIÁ THUẬT TOÁN")
+                    st.subheader("📊 BÁO CÁO KẾT QUẢ CHẤM MÁY & PHÂN TÍCH THUẬT TOÁN")
                 
                 with col_reset_btn:
                     if st.button("🔄 LÀM LẠI / CHẤM LẠI BÀI NÀY", type="secondary", use_container_width=True):
@@ -632,7 +619,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                 m1, m2, m3 = st.columns(3)
                 is_perfect = (res['diem'] == 10.0)
                 m1.metric(
-                    "Kết Quả Testcase", 
+                    "Trạng Thái Bài Làm", 
                     res['trang_thai'], 
                     delta="🟢 Đạt điểm tối đa (AC)" if is_perfect else "🔴 Chưa đạt (WA)", 
                     delta_color="normal" if is_perfect else "inverse"
@@ -640,7 +627,12 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                 m2.metric("Thời Gian Chạy Tổng 5 Test", res['thoi_gian_chay'], delta="Tối ưu")
                 m3.metric("Điểm Số Đạt Được", f"{res['diem']:.1f}/10")
                 
-                st.markdown("---")
+                # 🌟 BẢNG BÁO CÁO CHI TIẾT TỪNG TESTCASE CHO HỌC SINH SOI DỄ DÀNG
+                if "test_details" in res:
+                    st.markdown("### 📋 Kết Quả Chi Tiết 5 Bộ Test:")
+                    st.dataframe(res["test_details"], use_container_width=True)
+
+                st.markdown("### 💡 Gợi Ý Tối Ưu Từ Thầy AI:")
                 st.markdown(res['nhan_xet_ai'])
 
         with student_tab2:
@@ -670,7 +662,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                         st.write(f"**Trạng thái:** `{sub['trang_thai']}` | **Thời gian chạy:** `{sub['thoi_gian_chay']}`")
                         st.markdown("**💻 Code C++ Tốt Nhất Của Em:**")
                         st.code(sub.get('code_cpp', '// Không có mã nguồn'), language='cpp')
-                        st.markdown("**📋 Đánh Giá Từ AI:**")
+                        st.markdown("**📋 Gợi Ý Tối Ưu Từ AI:**")
                         st.markdown(sub['nhan_xet_ai'])
 
 # ==========================================

@@ -153,7 +153,7 @@ if 'submissions_db' not in st.session_state:
     st.session_state['submissions_db'] = db_get("submissions", {})
 
 if 'top_display_count' not in st.session_state:
-    st.session_state['top_display_count'] = db_get("top_count", 2)
+    st.session_state['top_display_count'] = db_get("top_count", 3)
 
 if 'user_role' not in st.session_state:
     st.session_state['user_role'] = None
@@ -241,7 +241,8 @@ def run_testcase(exec_file, input_data, io_mode="cin/cout", file_inp="BAILAM.INP
     except Exception as e:
         return "RTE", str(e), 0.0
 
-def get_top_students(top_n=2):
+# 🌟 HÀM TÍNH TOP HỌC SINH ĐÃ CHUẨN HÓA LỌC TRÙNG LẶP ĐIỂM SỐ tuyệt đối
+def get_top_students(top_n=3):
     all_subs = db_get("submissions", st.session_state['submissions_db'])
     all_st_accounts = list(st.session_state.get('student_accounts', {}).keys())
     
@@ -249,9 +250,11 @@ def get_top_students(top_n=2):
     for st_id in all_st_accounts:
         st_subs = all_subs.get(st_id, [])
         best_by_prob = {}
+        
+        # Chỉ lấy 1 điểm số CAO NHẤT duy nhất cho mỗi bài tập
         for s in st_subs:
-            t = s.get('ten_bai')
-            sc = s.get('diem', 0.0)
+            t = s.get('ten_bai', '').strip().upper()
+            sc = float(s.get('diem', 0.0))
             if t not in best_by_prob or sc > best_by_prob[t]:
                 best_by_prob[t] = sc
                 
@@ -331,7 +334,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
     if st.session_state['user_role'] != 'student':
         st.warning("🔒 **YÊU CẦU ĐĂNG NHẬP:** Vui lòng đăng nhập tài khoản Học sinh ở thanh Menu bên trái để nộp bài & chấm điểm!")
         
-        top_limit = st.session_state.get('top_display_count', 2)
+        top_limit = st.session_state.get('top_display_count', 3)
         top_students = get_top_students(top_limit)
         
         if len(top_students) > 0:
@@ -534,7 +537,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             calculated_score = float(passed_tests * 2.0)
                             status_display = f"AC ({passed_tests}/5 Test)" if passed_tests == 5 else f"WA ({passed_tests}/5 Test)"
 
-                            # 🌟 PROMPT SIÊU CẮT GỌT: TẬP TRUNG 100% VÀO THUẬT TOÁN HỌC SINH CẦN TỚI
                             prompt_text = f"""
                             Bạn là Giáo viên Tin học. Nhận xét cực kỳ ngắn gọn bài C++ dưới đây:
                             [ĐỀ BÀI]: {prob['de_bai'][:150]}
@@ -565,7 +567,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                                     )
                                     feedback_text = response.text
                             except Exception:
-                                feedback_text = "* **🔍 Đánh giá nhanh:** Bài làm chưa tối ưu trọn vẹn các bộ test.\n* **💡 Tối ưu thuật toán:** Hãy kiểm tra lại kiểu dữ liệu (long long) hoặc thuật toán tối ưu $O(N)$."
+                                feedback_text = "* **🔍 Đánh giá nhanh:** Bài làm chưa tối ưu trọn vẹn các bộ test.\n* **💡 Tối ưu thuật toán:** Hãy kiểm tra lại kiểu dữ liệu (long long) hoặc thuật toán tối ưu O(N)."
 
                             if student_id not in st.session_state['submissions_db']:
                                 st.session_state['submissions_db'][student_id] = []
@@ -582,16 +584,20 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                                 "code_cpp": final_code_to_grade
                             }
                             
+                            # 🌟 LƯU ĐIỂM KỶ LỤC DỰA TRÊN TÊN BÀI CHUẨN HOÁ
                             st_subs = st.session_state['submissions_db'][student_id]
-                            existing_idx = next((i for i, s in enumerate(st_subs) if s['ten_bai'] == prob['ten_bai']), -1)
+                            target_title = prob['ten_bai'].strip().upper()
+                            existing_idx = next((i for i, s in enumerate(st_subs) if s.get('ten_bai', '').strip().upper() == target_title), -1)
                             
                             if existing_idx == -1:
                                 st_subs.append(sub_record)
+                                st.toast("🎉 Đã lưu bài nộp thành công!", icon="✅")
                             else:
                                 old_rec = st_subs[existing_idx]
-                                old_score = old_rec.get('diem', 0.0)
-                                old_ms = old_rec.get('exec_ms', 999999.0)
+                                old_score = float(old_rec.get('diem', 0.0))
+                                old_ms = float(old_rec.get('exec_ms', 999999.0))
                                 
+                                # Đè bản ghi cũ khi điểm cao hơn hoặc thời gian chạy tối ưu hơn
                                 if (calculated_score > old_score) or (calculated_score == old_score and total_exec_time < old_ms):
                                     st_subs[existing_idx] = sub_record
                                     st.toast("🎉 Đã cập nhật kỷ lục bài làm tốt nhất của em!", icon="🏆")
@@ -627,7 +633,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                 m2.metric("Thời Gian Chạy Tổng 5 Test", res['thoi_gian_chay'], delta="Tối ưu")
                 m3.metric("Điểm Số Đạt Được", f"{res['diem']:.1f}/10")
                 
-                # 🌟 BẢNG BÁO CÁO CHI TIẾT TỪNG TESTCASE CHO HỌC SINH SOI DỄ DÀNG
                 if "test_details" in res:
                     st.markdown("### 📋 Kết Quả Chi Tiết 5 Bộ Test:")
                     st.dataframe(res["test_details"], use_container_width=True)
@@ -921,7 +926,7 @@ else:
                             st.toast(f"✅ Đã cấp tài khoản cho: {clean_u}!", icon="🎉")
                             st.rerun()
                     else:
-                        st.error("Vui lòng điền đủ Username và Password!")
+                        st.error("Vui lòng điền đủ Username and Password!")
 
             with col_edit_acc:
                 st.caption("🛠️ **Chỉnh Sửa / Cấp Lại Mật Khẩu:**")
@@ -962,7 +967,7 @@ else:
             col_cfg1, col_cfg2 = st.columns([2, 1])
             with col_cfg1:
                 st.caption("🏆 **Cấu hình Bảng Vinh Danh Học Sinh Tích Cực ở Trang Chủ:**")
-                current_top = st.session_state.get('top_display_count', 2)
+                current_top = st.session_state.get('top_display_count', 3)
                 new_top_count = st.number_input("Số lượng Top học sinh hiển thị ở Trang chủ (Ví dụ: 2, 3, 4, 5...):", min_value=1, max_value=10, value=current_top)
             
             with col_cfg2:
@@ -999,8 +1004,8 @@ else:
                         st_subs = all_subs.get(st_id, [])
                         best_by_prob = {}
                         for s in st_subs:
-                            t = s.get('ten_bai')
-                            sc = s.get('diem', 0.0)
+                            t = s.get('ten_bai', '').strip().upper()
+                            sc = float(s.get('diem', 0.0))
                             if t not in best_by_prob or sc > best_by_prob[t]:
                                 best_by_prob[t] = sc
                                 

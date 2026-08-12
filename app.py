@@ -241,7 +241,7 @@ def run_testcase(exec_file, input_data, io_mode="cin/cout", file_inp="BAILAM.INP
     except Exception as e:
         return "RTE", str(e), 0.0
 
-# 🌟 HÀM TÍNH TOP HỌC SINH ĐÃ CHUẨN HÓA LỌC TRÙNG LẶP ĐIỂM SỐ tuyệt đối
+# 🌟 CẬP NHẬT: THAY SỐ LẦN NỘP BẰNG ĐIỂM TRUNG BÌNH
 def get_top_students(top_n=3):
     all_subs = db_get("submissions", st.session_state['submissions_db'])
     all_st_accounts = list(st.session_state.get('student_accounts', {}).keys())
@@ -251,7 +251,6 @@ def get_top_students(top_n=3):
         st_subs = all_subs.get(st_id, [])
         best_by_prob = {}
         
-        # Chỉ lấy 1 điểm số CAO NHẤT duy nhất cho mỗi bài tập
         for s in st_subs:
             t = s.get('ten_bai', '').strip().upper()
             sc = float(s.get('diem', 0.0))
@@ -261,15 +260,20 @@ def get_top_students(top_n=3):
         total_score = sum(best_by_prob.values())
         ac_count = sum(1 for sc in best_by_prob.values() if sc == 10.0)
         
+        # Tính điểm trung bình dựa trên các bài đã giải
+        num_problems_done = len(best_by_prob)
+        avg_score = (total_score / num_problems_done) if num_problems_done > 0 else 0.0
+        
         if len(st_subs) > 0:
             leaderboard.append({
                 "st_id": st_id,
                 "ac_count": ac_count,
                 "total_score": total_score,
-                "total_subs": len(st_subs)
+                "avg_score": avg_score
             })
             
-    leaderboard.sort(key=lambda x: (x["ac_count"], x["total_score"], x["total_subs"]), reverse=True)
+    # Ưu tiên: Bài AC -> Tổng điểm -> Điểm trung bình
+    leaderboard.sort(key=lambda x: (x["ac_count"], x["total_score"], x["avg_score"]), reverse=True)
     return leaderboard[:top_n]
 
 # ==========================================
@@ -349,7 +353,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                         <h4>{medals[min(i, 3)]}: <span style="color:#0284c7;">{st_info['st_id']}</span></h4>
                         <p>✅ Bài đạt 10/10 (AC): <b>{st_info['ac_count']} Bài</b></p>
                         <p>🎯 Tổng điểm tích lũy: <b>{st_info['total_score']:.1f} điểm</b></p>
-                        <p>🔥 Số lần nộp bài: <b>{st_info['total_subs']} lần</b></p>
+                        <p>⭐ Điểm trung bình: <b>{st_info['avg_score']:.1f} / 10 điểm</b></p>
                     </div>
                     """, unsafe_allow_html=True)
             st.markdown("---")
@@ -584,7 +588,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                                 "code_cpp": final_code_to_grade
                             }
                             
-                            # 🌟 LƯU ĐIỂM KỶ LỤC DỰA TRÊN TÊN BÀI CHUẨN HOÁ
                             st_subs = st.session_state['submissions_db'][student_id]
                             target_title = prob['ten_bai'].strip().upper()
                             existing_idx = next((i for i, s in enumerate(st_subs) if s.get('ten_bai', '').strip().upper() == target_title), -1)
@@ -597,7 +600,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                                 old_score = float(old_rec.get('diem', 0.0))
                                 old_ms = float(old_rec.get('exec_ms', 999999.0))
                                 
-                                # Đè bản ghi cũ khi điểm cao hơn hoặc thời gian chạy tối ưu hơn
                                 if (calculated_score > old_score) or (calculated_score == old_score and total_exec_time < old_ms):
                                     st_subs[existing_idx] = sub_record
                                     st.toast("🎉 Đã cập nhật kỷ lục bài làm tốt nhất của em!", icon="🏆")
@@ -926,7 +928,7 @@ else:
                             st.toast(f"✅ Đã cấp tài khoản cho: {clean_u}!", icon="🎉")
                             st.rerun()
                     else:
-                        st.error("Vui lòng điền đủ Username and Password!")
+                        st.error("Vui lòng điền đủ Username và Password!")
 
             with col_edit_acc:
                 st.caption("🛠️ **Chỉnh Sửa / Cấp Lại Mật Khẩu:**")
@@ -1011,24 +1013,26 @@ else:
                                 
                         total_score = sum(best_by_prob.values())
                         ac_count = sum(1 for sc in best_by_prob.values() if sc == 10.0)
+                        num_done = len(best_by_prob)
+                        avg_sc = (total_score / num_done) if num_done > 0 else 0.0
                         
                         leaderboard.append({
                             "Học Sinh": st_id,
                             "Số Bài AC (10/10)": ac_count,
-                            "Số Bài Đã Giải": len(best_by_prob),
+                            "Số Bài Đã Giải": num_done,
                             "Tổng Điểm Tích Lũy": total_score,
-                            "Tổng Số Lần Nộp": len(st_subs)
+                            "Điểm Trung Bình": avg_sc
                         })
                     
-                    leaderboard.sort(key=lambda x: (x["Số Bài AC (10/10)"], x["Tổng Điểm Tích Lũy"], x["Tổng Số Lần Nộp"]), reverse=True)
+                    leaderboard.sort(key=lambda x: (x["Số Bài AC (10/10)"], x["Tổng Điểm Tích Lũy"], x["Điểm Trung Bình"]), reverse=True)
                     
                     lb_display = [{
                         "Hạng": "🥇 1" if i==0 else ("🥈 2" if i==1 else ("🥉 3" if i==2 else f"{i+1}")),
                         "Tên Học Sinh": item["Học Sinh"],
                         "Số Bài 10/10 (AC)": item["Số Bài AC (10/10)"],
                         "Tổng Điểm": f"{item['Tổng Điểm Tích Lũy']:.1f}",
-                        "Số Bài Đã Làm": item["Số Bài Đã Giải"],
-                        "Tổng Lần Nộp": item["Tổng Số Lần Nộp"]
+                        "Điểm Trung Bình": f"{item['Điểm Trung Bình']:.1f} / 10",
+                        "Số Bài Đã Làm": item["Số Bài Đã Giải"]
                     } for i, item in enumerate(leaderboard)]
                     
                     st.dataframe(lb_display, use_container_width=True)

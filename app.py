@@ -94,6 +94,7 @@ DEFAULT_PROBLEMS = [
         "io_mode": "Đọc/Ghi Tệp (.INP / .OUT)",
         "file_inp": "MAXSUB.INP",
         "file_out": "MAXSUB.OUT",
+        "is_visible": True,
         "de_bai": "Cho mảng $A$ gồm $N$ số nguyên. Hãy tìm dãy con liên tục có tổng lớn nhất.\n\n**Giới hạn:**\n* $N \\le 10^5$\n* $|A_i| \\le 10^9$",
         "sample_in_1": "5\n2 -3 4 -1 2", "sample_out_1": "5",
         "sample_in_2": "3\n-1 -2 -3", "sample_out_2": "-1",
@@ -241,7 +242,6 @@ def run_testcase(exec_file, input_data, io_mode="cin/cout", file_inp="BAILAM.INP
     except Exception as e:
         return "RTE", str(e), 0.0
 
-# 🌟 CẬP NHẬT: THAY SỐ LẦN NỘP BẰNG ĐIỂM TRUNG BÌNH
 def get_top_students(top_n=3):
     all_subs = db_get("submissions", st.session_state['submissions_db'])
     all_st_accounts = list(st.session_state.get('student_accounts', {}).keys())
@@ -259,8 +259,6 @@ def get_top_students(top_n=3):
                 
         total_score = sum(best_by_prob.values())
         ac_count = sum(1 for sc in best_by_prob.values() if sc == 10.0)
-        
-        # Tính điểm trung bình dựa trên các bài đã giải
         num_problems_done = len(best_by_prob)
         avg_score = (total_score / num_problems_done) if num_problems_done > 0 else 0.0
         
@@ -272,7 +270,6 @@ def get_top_students(top_n=3):
                 "avg_score": avg_score
             })
             
-    # Ưu tiên: Bài AC -> Tổng điểm -> Điểm trung bình
     leaderboard.sort(key=lambda x: (x["ac_count"], x["total_score"], x["avg_score"]), reverse=True)
     return leaderboard[:top_n]
 
@@ -335,6 +332,9 @@ else:
 # 5. GIAO DIỆN HỌC SINH LÀM BÀI
 # ==========================================
 if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
+    # 🌟 LỌC DANH SÁCH BÀI TẬP: CHỈ LẤY BÀI CÓ TRẠNG THÁI HIỆN (is_visible == True)
+    visible_problems = [p for p in st.session_state['problems_db'] if p.get('is_visible', True) == True]
+    
     if st.session_state['user_role'] != 'student':
         st.warning("🔒 **YÊU CẦU ĐĂNG NHẬP:** Vui lòng đăng nhập tài khoản Học sinh ở thanh Menu bên trái để nộp bài & chấm điểm!")
         
@@ -359,11 +359,10 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
             st.markdown("---")
 
         st.markdown("## 🆕 Danh Sách Bài Tập Mới Đăng Nổi Bật")
-        problems_list = st.session_state['problems_db']
-        if len(problems_list) == 0:
-            st.info("Chưa có bài tập nào được đăng.")
+        if len(visible_problems) == 0:
+            st.info("Hiện tại chưa có bài tập nào được công khai.")
         else:
-            recent_probs = list(reversed(problems_list))[:5]
+            recent_probs = list(reversed(visible_problems))[:5]
             for idx, p in enumerate(recent_probs):
                 with st.expander(f"📌 **{p['ten_bai']}** — *(Hình thức: {p['io_mode']})*", expanded=(idx == 0)):
                     st.markdown(f"**Nội dung xem trước đề bài:**")
@@ -371,8 +370,8 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                     st.markdown(short_de_bai)
                     st.caption("🔒 *Hãy đăng nhập tài khoản Học sinh để mở toàn bộ 5 Testcase và gửi bài nộp C++!*")
                     
-    elif len(st.session_state['problems_db']) == 0:
-        st.info("📚 Hiện tại chưa có bài tập nào trong Ngân hàng đề thi.")
+    elif len(visible_problems) == 0:
+        st.info("📚 Hiện tại chưa có bài tập nào được công khai để làm bài.")
     else:
         student_id = st.session_state['logged_student']
         
@@ -382,10 +381,10 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
             st.subheader("📚 Chọn Bài Tập")
             
             col_select, col_confirm = st.columns([3, 1])
-            prob_titles = [p['ten_bai'] for p in st.session_state['problems_db']]
+            prob_titles = [p['ten_bai'] for p in visible_problems]
             
             curr_idx = st.session_state['current_student_problem_id']
-            if curr_idx >= len(st.session_state['problems_db']):
+            if curr_idx >= len(visible_problems):
                 curr_idx = 0
                 st.session_state['current_student_problem_id'] = 0
 
@@ -396,13 +395,13 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                 st.write("")
                 st.write("") 
                 if st.button("OK - XÁC NHẬN CHỌN BÀI", type="primary", use_container_width=True):
-                    new_idx = next(i for i, p in enumerate(st.session_state['problems_db']) if p['ten_bai'] == selected_title_temp)
+                    new_idx = next(i for i, p in enumerate(visible_problems) if p['ten_bai'] == selected_title_temp)
                     st.session_state['current_student_problem_id'] = new_idx
                     st.session_state['last_grade_result'] = None
                     st.toast(f"Đã chuyển sang bài tập: {selected_title_temp}!", icon="🎯")
                     st.rerun()
 
-            prob = st.session_state['problems_db'][st.session_state['current_student_problem_id']]
+            prob = visible_problems[st.session_state['current_student_problem_id']]
             
             st.markdown("---")
             st.subheader(f"📝 {prob['ten_bai']}")
@@ -704,11 +703,12 @@ else:
                 st.info("Chưa có bài tập nào. Hãy bấm nút '➕ SOẠN BÀI TẬP MỚI' để thêm bài đầu tiên!")
 
             for idx, p in enumerate(st.session_state['problems_db']):
-                with st.expander(f"📌 Bài {idx+1}: {p['ten_bai']} ({p['io_mode']})", expanded=True):
+                status_icon = "🟢 [ĐANG MỞ]" if p.get('is_visible', True) else "🔒 [ĐANG ẨN / SOÁT ĐỀ]"
+                with st.expander(f"📌 Bài {idx+1}: {p['ten_bai']} — {status_icon}", expanded=True):
                     c_info, c_act1, c_act2 = st.columns([3, 1, 1])
                     with c_info:
                         st.markdown(f"**Giới hạn/Đề bài:** {p['de_bai'][:120]}...")
-                        st.caption(f"File INP: `{p['file_inp']}` | File OUT: `{p['file_out']}`")
+                        st.caption(f"File INP: `{p['file_inp']}` | File OUT: `{p['file_out']}` | Trạng thái: **{status_icon}**")
                     
                     with c_act1:
                         if st.button(f"✏️ SỬA ĐỀ", key=f"edit_btn_{idx}"):
@@ -735,6 +735,7 @@ else:
                 curr_p = {
                     "ten_bai": "", "io_mode": "Đọc/Ghi Tệp (.INP / .OUT)",
                     "file_inp": "BAILAM.INP", "file_out": "BAILAM.OUT",
+                    "is_visible": True,
                     "de_bai": "", 
                     "sample_in_1": "", "sample_out_1": "",
                     "sample_in_2": "", "sample_out_2": "", 
@@ -747,15 +748,23 @@ else:
                 st.markdown(f"### ✏️ Chỉnh Sửa Bài Tập: **{st.session_state['problems_db'][edit_id]['ten_bai']}**")
                 curr_p = st.session_state['problems_db'][edit_id]
 
-            col_t1, col_t2 = st.columns([2, 1])
+            col_t1, col_t2, col_t3 = st.columns([2, 1, 1])
             with col_t1:
                 ten_bai_val = st.text_input("📌 Tên Bài Tập:", value=curr_p['ten_bai'])
             with col_t2:
                 io_mode_val = st.selectbox(
-                    "⚙️ Hình Thức Nhập / Xuất Dữ Liệu:",
+                    "⚙️ Hình Thức Nhập / Xuất:",
                     ["Đọc/Ghi Tệp (.INP / .OUT)", "Nhập/Xuất Chuẩn (cin / cout)"],
                     index=0 if curr_p['io_mode'] == "Đọc/Ghi Tệp (.INP / .OUT)" else 1
                 )
+            with col_t3:
+                # 🌟 TÙY CHỌN ẨN / HIỆN KHI THIẾT KẾ ĐỀ
+                vis_option = st.selectbox(
+                    "👁️ Trạng Thái Hiển Thị:",
+                    ["👁️ HIỆN (Học sinh thấy)", "🔒 ẨN (Kiểm thử / Soát đề)"],
+                    index=0 if curr_p.get('is_visible', True) else 1
+                )
+                is_visible_val = (vis_option == "👁️ HIỆN (Học sinh thấy)")
             
             if io_mode_val == "Đọc/Ghi Tệp (.INP / .OUT)":
                 c_file1, c_file2 = st.columns(2)
@@ -885,6 +894,7 @@ else:
                             "io_mode": io_mode_val,
                             "file_inp": sanitize_text(file_inp_val),
                             "file_out": sanitize_text(file_out_val),
+                            "is_visible": is_visible_val,
                             "de_bai": sanitize_text(de_bai_val),
                             "sample_in_1": sanitize_text(in_1), "sample_out_1": sanitize_text(out_1),
                             "sample_in_2": sanitize_text(in_2), "sample_out_2": sanitize_text(out_2),

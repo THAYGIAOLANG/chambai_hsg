@@ -143,11 +143,16 @@ DEFAULT_ACCOUNTS = {
     "hocsinh02": "123456"
 }
 
+FIREBASE_SECRET = st.secrets.get("FIREBASE_SECRET", os.environ.get("FIREBASE_SECRET", "")).strip()
+
 def db_get(endpoint, default_value):
     if not FIREBASE_URL:
         return default_value
     try:
-        res = requests.get(f"{FIREBASE_URL}/{endpoint}.json", timeout=5)
+        url = f"{FIREBASE_URL}/{endpoint}.json"
+        if FIREBASE_SECRET:
+            url += f"?auth={FIREBASE_SECRET}"
+        res = requests.get(url, timeout=5)
         if res.status_code == 200 and res.json() is not None:
             return res.json()
     except Exception:
@@ -158,10 +163,12 @@ def db_save(endpoint, data):
     if not FIREBASE_URL:
         return
     try:
-        requests.put(f"{FIREBASE_URL}/{endpoint}.json", json=data, timeout=5)
+        url = f"{FIREBASE_URL}/{endpoint}.json"
+        if FIREBASE_SECRET:
+            url += f"?auth={FIREBASE_SECRET}"
+        requests.put(url, json=data, timeout=5)
     except Exception as e:
         st.error(f"Lỗi đồng bộ Firebase: {e}")
-
 if 'problems_db' not in st.session_state:
     st.session_state['problems_db'] = db_get("problems", DEFAULT_PROBLEMS)
 

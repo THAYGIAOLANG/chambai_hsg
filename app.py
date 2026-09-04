@@ -95,7 +95,7 @@ DEFAULT_PROBLEMS = [
         "file_inp": "MAXSUB.INP",
         "file_out": "MAXSUB.OUT",
         "is_visible": True,
-        "de_bai": "Cho mảng $A$ gồm $N$ số nguyên. Hãy tìm dãy con liên tục có tổng lớn nhất.\n\n**Giới hạn:**\n* $N \\le 10^5$\n* $\vert{}A_i\vert{} \\le 10^9$",
+        "de_bai": "Cho mảng $A$ gồm $N$ số nguyên. Hãy tìm dãy con liên tục có tổng lớn nhất.\n\n**Giới hạn:**\n* $N \\le 10^5$\n* $\\vert{}A_i\\vert{} \\le 10^9$",
         "sample_in_1": "5\n2 -3 4 -1 2",
         "sample_out_1": "5",
         "gen_code": """# Mã Python sinh bộ 5 test: Test 1 (mẫu), Test 2 (biên N=1), Test 3 (toàn âm), Test 4 (N=10^4), Test 5 (N=10^5)
@@ -143,15 +143,11 @@ DEFAULT_ACCOUNTS = {
     "hocsinh02": "123456"
 }
 
-FIREBASE_SECRET = st.secrets.get("FIREBASE_SECRET", os.environ.get("FIREBASE_SECRET", "")).strip()
-
 def db_get(endpoint, default_value):
     if not FIREBASE_URL:
         return default_value
     try:
         url = f"{FIREBASE_URL}/{endpoint}.json"
-        if FIREBASE_SECRET:
-            url += f"?auth={FIREBASE_SECRET}"
         res = requests.get(url, timeout=5)
         if res.status_code == 200 and res.json() is not None:
             return res.json()
@@ -164,11 +160,10 @@ def db_save(endpoint, data):
         return
     try:
         url = f"{FIREBASE_URL}/{endpoint}.json"
-        if FIREBASE_SECRET:
-            url += f"?auth={FIREBASE_SECRET}"
         requests.put(url, json=data, timeout=5)
     except Exception as e:
         st.error(f"Lỗi đồng bộ Firebase: {e}")
+
 if 'problems_db' not in st.session_state:
     st.session_state['problems_db'] = db_get("problems", DEFAULT_PROBLEMS)
 

@@ -84,6 +84,29 @@ def normalize_output(text):
     lines = [line.strip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
     return "\n".join([l for l in lines if l != ""]).strip()
 
+def call_gemini_with_fallback(prompt_content):
+    """Tự động gọi Gemini với cơ chế thử lại và chuyển model dự phòng khi gặp lỗi 503"""
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    models_to_try = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
+    last_err = ""
+    
+    for model_name in models_to_try:
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt_content
+                )
+                if response and response.text:
+                    return response.text
+            except Exception as e:
+                last_err = str(e)
+                if "503" in last_err or "UNAVAILABLE" in last_err or "429" in last_err:
+                    time.sleep(1.5)
+                    continue
+                raise e
+    raise Exception(f"Các máy chủ AI đều đang bận, thầy vui lòng thử lại sau vài giây. ({last_err})")
+
 # ==========================================
 # 2. XỬ LÝ LƯU TRỮ ĐÁM MÂY VĨNH VIỄN QUA FIREBASE
 # ==========================================
@@ -564,9 +587,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             clean_prompt = sanitize_text(prompt_text)
                             feedback_text = ""
                             try:
-                                client = genai.Client(api_key=GEMINI_API_KEY)
-                                response = client.models.generate_content(model="gemini-2.5-flash", contents=clean_prompt)
-                                feedback_text = response.text
+                                feedback_text = call_gemini_with_fallback(clean_prompt)
                             except Exception:
                                 feedback_text = "* **🔍 Đánh giá thuật toán:** Cần kiểm tra kỹ các test dữ liệu lớn.\n* **💡 Hướng tối ưu:** Tối ưu cấu trúc dữ liệu và kiểu số nguyên lớn."
 
@@ -790,7 +811,6 @@ def generate_test(test_id):
                 else:
                     with st.spinner("🤖 AI đang phân tích giới hạn đề bài để viết mã sinh test..."):
                         try:
-                            client = genai.Client(api_key=GEMINI_API_KEY)
                             ai_gen_prompt = f"""
                             Bạn là chuyên gia ra đề HSG Tin học. Hãy viết MÃ NGUỒN PYTHON chứa hàm `generate_test(test_id)` trả về chuỗi String Input tương ứng:
                             - test_id = 1: Test ví dụ mẫu nhỏ
@@ -804,8 +824,8 @@ def generate_test(test_id):
 
                             CHỈ TRẢ VỀ DUY NHẤT ĐOẠN CODE PYTHON (KHÔNG BỌC TRONG BẤT KỲ VĂN BẢN NÀO):
                             """
-                            gen_res = client.models.generate_content(model="gemini-2.5-flash", contents=ai_gen_prompt)
-                            code_cleaned = gen_res.text.replace("```python", "").replace("```", "").strip()
+                            raw_text = call_gemini_with_fallback(ai_gen_prompt)
+                            code_cleaned = raw_text.replace("```python", "").replace("```", "").strip()
                             curr_p['gen_code'] = code_cleaned
                             st.rerun()
                         except Exception as e:

@@ -84,19 +84,28 @@ def normalize_output(text):
     lines = [line.strip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
     return "\n".join([l for l in lines if l != ""]).strip()
 
-def call_gemini_with_fallback(prompt_content):
+def call_gemini_with_fallback(prompt_content, expect_json=False):
     """Tự động gọi Gemini với cơ chế thử lại và chuyển model dự phòng khi gặp lỗi 503"""
     client = genai.Client(api_key=GEMINI_API_KEY)
     models_to_try = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
     last_err = ""
     
+    config = {"response_mime_type": "application/json"} if expect_json else None
+    
     for model_name in models_to_try:
         for attempt in range(2):
             try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt_content
-                )
+                if config:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt_content,
+                        config=config
+                    )
+                else:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt_content
+                    )
                 if response and response.text:
                     return response.text
             except Exception as e:
@@ -211,6 +220,8 @@ if 'last_grade_result' not in st.session_state:
     st.session_state['last_grade_result'] = None
 if 'selected_problem_id' not in st.session_state:
     st.session_state['selected_problem_id'] = 0
+if 'batch_parsed_problems' not in st.session_state:
+    st.session_state['batch_parsed_problems'] = []
 
 # ==========================================
 # 3. HÀM XỬ LÝ TRÍCH XUẤT ĐỀ BÀI & C++ ENGINE
@@ -226,8 +237,20 @@ def extract_text_from_pdf(pdf_file):
 
 def extract_text_from_docx(docx_file):
     doc = docx.Document(docx_file)
-    text = "\n".join([p.text for p in doc.paragraphs if p.text.strip() != ""])
-    return sanitize_text(text)
+    full_text = []
+    # Trích xuất cả đoạn văn và bảng biểu (để giữ nguyên khung Ví dụ Input/Output)
+    for block in doc.element.body:
+        if block.tag.endswith('p'):
+            p_text = "".join(block.itertext()).strip()
+            if p_text:
+                full_text.append(p_text)
+        elif block.tag.endswith('tbl'):
+            full_text.append("\n[BẢNG VÍ DỤ]:")
+            for row in block.findall('.//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tr'):
+                cells = ["".join(c.itertext()).strip() for c in row.findall('.//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tc')]
+                full_text.append(" | ".join(cells))
+            full_text.append("[HẾT BẢNG]\n")
+    return sanitize_text("\n".join(full_text))
 
 def compile_cpp(cpp_file, exec_file):
     if os.name == 'nt' and not exec_file.endswith('.exe'):
@@ -522,12 +545,10 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                     st.error("⚠️ Hệ thống chưa cấu hình `GEMINI_API_KEY`!")
                 else:
                     with st.spinner("⏳ Đang biên dịch code mẫu và sinh bộ 5 testcase tự động..."):
-                        # Biên dịch code mẫu của Thầy
                         with open("teacher.cpp", "w", encoding="utf-8") as f:
                             f.write(prob.get("code_mau", ""))
                         t_compile_ok, t_err = compile_cpp("teacher.cpp", "teacher.exec")
 
-                        # Biên dịch code của học sinh
                         with open("student.cpp", "w", encoding="utf-8") as f:
                             f.write(final_code_to_grade)
                         s_compile_ok, s_compile_err = compile_cpp("student.cpp", "student.exec")
@@ -549,15 +570,11 @@ if role_option == "👨‍🎓 Góc Học Sinh Làm Bài":
                             gen_script = prob.get("gen_code", "")
 
                             for t_idx in range(1, 6):
-                                # 🌟 SINH TEST ĐỘNG CỤC BỘ QUA PYTHON GENERATOR
                                 test_inp = execute_generator_script(gen_script, t_idx)
                                 if not test_inp:
                                     test_inp = prob.get("sample_in_1", "")
 
-                                # Chạy code mẫu của Thầy để lấy đáp án chuẩn
                                 _, correct_out, _ = run_testcase("teacher.exec", test_inp, io_m, f_in, f_out, time_limit=2.0)
-                                
-                                # Chạy code học sinh
                                 status, student_out, exec_t = run_testcase("student.exec", test_inp, io_m, f_in, f_out, time_limit=1.0)
                                 total_exec_time += exec_t
                                 
@@ -687,41 +704,57 @@ else:
         st.warning("🔒 **KHU VỰC BẢO MẬT:** Bàn làm việc Giáo viên yêu cầu quyền Quản trị. Vui lòng đăng nhập mật khẩu ở Menu bên trái!")
     else:
         st.subheader("👨‍🏫 Bàn Làm Việc Giáo Viên — Quản Lý Đề Thi & Học Sinh")
+        teacher_tabs = [
+            "📋 Danh Sách Bài Đã Đăng", 
+            "➕ Thêm / Sửa Bài Lẻ", 
+            "📚 Nhập File Chuyên Đề (Tách Hàng Loạt)", 
+            "👥 Quản Lý Tài Khoản Học Sinh", 
+            "⚙️ Cấu Hình Vinh Danh & Thống Kê"
+        ]
+        curr_tab_idx = st.session_state['active_teacher_tab']
+        if curr_tab_idx >= len(teacher_tabs):
+            curr_tab_idx = 0
+
         selected_tab = st.radio(
             "Chọn chức năng làm việc:",
-            ["📋 Danh Sách Bài Đã Đăng", "➕ Thêm Mới / Chỉnh Sửa Đề Bài", "👥 Quản Lý Tài Khoản Học Sinh", "⚙️ Cấu Hình Vinh Danh & Thống Kê"],
-            index=st.session_state['active_teacher_tab'],
+            teacher_tabs,
+            index=curr_tab_idx,
             horizontal=True
         )
         st.markdown("---")
 
+        # TAB 0: DANH SÁCH BÀI ĐÃ ĐĂNG
         if selected_tab == "📋 Danh Sách Bài Đã Đăng":
             st.markdown("### 📚 Danh Sách Ngân Hàng Đề Thi Hiện Có:")
-            col_add_btn, _ = st.columns([1, 3])
-            with col_add_btn:
-                if st.button("➕ SOẠN BÀI TẬP MỚI", type="primary"):
+            col_add_btn1, col_add_btn2, _ = st.columns([1.2, 1.5, 2.3])
+            with col_add_btn1:
+                if st.button("➕ SOẠN BÀI LẺ MỚI", type="primary", use_container_width=True):
                     st.session_state['selected_problem_id'] = -1
                     st.session_state['active_teacher_tab'] = 1
                     st.rerun()
+            with col_add_btn2:
+                if st.button("📚 NHẬP TỪ FILE CHUYÊN ĐỀ", type="secondary", use_container_width=True):
+                    st.session_state['active_teacher_tab'] = 2
+                    st.rerun()
 
             if len(st.session_state['problems_db']) == 0:
-                st.info("Chưa có bài tập nào. Hãy bấm nút '➕ SOẠN BÀI TẬP MỚI' để thêm bài đầu tiên!")
+                st.info("Chưa có bài tập nào. Hãy thêm bài lẻ hoặc tải lên tệp chuyên đề!")
 
             for idx, p in enumerate(st.session_state['problems_db']):
                 status_icon = "🟢 [ĐANG MỞ]" if p.get('is_visible', True) else "🔒 [ĐANG ẨN / SOÁT ĐỀ]"
-                with st.expander(f"📌 Bài {idx+1}: {p['ten_bai']} — {status_icon}", expanded=True):
+                with st.expander(f"📌 Bài {idx+1}: {p['ten_bai']} — {status_icon}", expanded=False):
                     c_info, c_act1, c_act2 = st.columns([3, 1, 1])
                     with c_info:
-                        st.markdown(f"**Giới hạn/Đề bài:** {p['de_bai'][:120]}...")
-                        st.caption(f"File INP: `{p['file_inp']}` | File OUT: `{p['file_out']}` | Trạng thái: **{status_icon}**")
+                        st.markdown(f"**Giới hạn/Đề bài:** {p['de_bai'][:140]}...")
+                        st.caption(f"Hình thức: `{p['io_mode']}` | File INP: `{p['file_inp']}` | File OUT: `{p['file_out']}`")
                     with c_act1:
-                        if st.button(f"✏️ SỬA ĐỀ", key=f"edit_btn_{idx}"):
+                        if st.button(f"✏️ SỬA ĐỀ", key=f"edit_btn_{idx}", use_container_width=True):
                             st.session_state['selected_problem_id'] = idx
                             st.session_state['active_teacher_tab'] = 1
                             st.toast(f"Đã chọn bài: {p['ten_bai']} để chỉnh sửa!")
                             st.rerun()
                     with c_act2:
-                        if st.button(f"🗑️ XOÁ BÀI", key=f"del_btn_{idx}", type="secondary"):
+                        if st.button(f"🗑️ XOÁ BÀI", key=f"del_btn_{idx}", type="secondary", use_container_width=True):
                             removed_title = st.session_state['problems_db'][idx]['ten_bai']
                             st.session_state['problems_db'].pop(idx)
                             db_save("problems", st.session_state['problems_db'])
@@ -729,7 +762,8 @@ else:
                             st.toast(f"🗑️ Đã xóa bài tập: {removed_title}!", icon="🎉")
                             st.rerun()
 
-        elif selected_tab == "➕ Thêm Mới / Chỉnh Sửa Đề Bài":
+        # TAB 1: THÊM / SỬA BÀI LẺ
+        elif selected_tab == "➕ Thêm / Sửa Bài Lẻ":
             edit_id = st.session_state['selected_problem_id']
             is_new = (edit_id == -1 or edit_id >= len(st.session_state['problems_db']))
             
@@ -871,6 +905,144 @@ def generate_test(test_id):
                     st.session_state['selected_problem_id'] = -1
                     st.rerun()
 
+        # TAB 2: NHẬP FILE CHUYÊN ĐỀ (TÁCH BÀI HÀNG LOẠT)
+        elif selected_tab == "📚 Nhập File Chuyên Đề (Tách Hàng Loạt)":
+            st.markdown("### 📚 Nhập & Bóc Tách Hàng Loạt Từ File Chuyên Đề")
+            st.info("💡 **Tính năng thông minh:** Tải lên 1 tệp chuyên đề (`.docx`, `.pdf`, `.txt`) chứa nhiều bài tập. AI sẽ tự động nhận diện từng bài, tách đề, ví dụ Input/Output, viết sẵn **code Python sinh test** theo giới hạn và viết luôn **code giải mẫu C++**.")
+
+            col_up_doc, col_opt_doc = st.columns([2, 1])
+            with col_up_doc:
+                topic_file = st.file_uploader("📂 Chọn tệp chuyên đề nhiều bài tập (.docx, .pdf, .txt):", type=["docx", "pdf", "txt"], key="topic_file_uploader")
+            with col_opt_doc:
+                default_vis_batch = st.selectbox("👁️ Trạng thái sau khi lưu:", ["🔒 ẨN (Để thầy soát lại)", "👁️ HIỆN (Mở cho học sinh ngay)"], index=0)
+                auto_gen_cpp = st.checkbox("🤖 Tự viết luôn Code C++ mẫu chuẩn", value=True)
+
+            if topic_file is not None:
+                if st.button("⚡ PHÂN TÍCH & TÁCH THÀNH CÁC BÀI TẬP ĐƠN", type="primary", use_container_width=True):
+                    if not GEMINI_API_KEY:
+                        st.error("Chưa cấu hình GEMINI_API_KEY!")
+                    else:
+                        with st.spinner("⏳ Đang đọc tệp chuyên đề và nhờ AI bóc tách cấu trúc từng bài (có thể mất 15–30 giây)..."):
+                            try:
+                                if topic_file.name.endswith(".pdf"):
+                                    raw_doc_text = extract_text_from_pdf(topic_file)
+                                elif topic_file.name.endswith(".docx"):
+                                    raw_doc_text = extract_text_from_docx(topic_file)
+                                else:
+                                    raw_doc_text = sanitize_text(topic_file.read().decode("utf-8", errors="ignore"))
+
+                                cpp_instruction = """
+                                - "code_mau": Viết mã nguồn C++ hoàn chỉnh, tối ưu (sử dụng freopen nếu đọc/ghi tệp, dùng long long tránh tràn số) giải đúng 100% bài toán.
+                                """ if auto_gen_cpp else """
+                                - "code_mau": ""
+                                """
+
+                                batch_prompt = f"""
+                                Bạn là chuyên gia ra đề thi Học sinh giỏi Tin học. Dưới đây là nội dung một tài liệu chuyên đề chứa NHIỀU BÀI TẬP.
+                                Hãy đọc toàn bộ tài liệu, phân tách chính xác thành TỪNG BÀI TẬP ĐƠN LẺ và trả về một MẢNG JSON (JSON Array), mỗi phần tử là một đối tượng đại diện cho 1 bài tập với đúng các trường sau:
+
+                                - "ten_bai": Tên bài tập (VD: "BÀI 1. TỔNG NGUYÊN TỐ (SUMPRIME)")
+                                - "io_mode": Chỉ nhận 1 trong 2 giá trị chính xác: "Đọc/Ghi Tệp (.INP / .OUT)" hoặc "Nhập/Xuất Chuẩn (cin / cout)". (Nếu đề có nhắc tên file .INP/.OUT thì chọn "Đọc/Ghi Tệp (.INP / .OUT)").
+                                - "file_inp": Tên tệp Input viết hoa (VD: "SUMPRIME.INP"), hoặc "cin" nếu nhập chuẩn.
+                                - "file_out": Tên tệp Output viết hoa (VD: "SUMPRIME.OUT"), hoặc "cout" nếu xuất chuẩn.
+                                - "de_bai": Toàn bộ nội dung mô tả đề bài, dữ liệu vào/ra, ràng buộc/giới hạn (định dạng Markdown sạch sẽ, các biểu thức toán học bọc trong dấu $...$). KHÔNG bao gồm phần ví dụ mẫu ở đây.
+                                - "sample_in_1": Dữ liệu Input của ví dụ 1 (chỉ lấy dữ liệu thô, không kèm chữ Input).
+                                - "sample_out_1": Dữ liệu Output của ví dụ 1 (chỉ lấy dữ liệu thô, không kèm chữ Output).
+                                - "gen_code": Viết mã nguồn Python thuần túy chứa hàm `generate_test(test_id)` trả về chuỗi String Input tương ứng với giới hạn của bài:
+                                    * test_id = 1: Giống hệt sample_in_1
+                                    * test_id = 2: Test biên cực tiểu / trường hợp đặc biệt
+                                    * test_id = 3: Test ngẫu nhiên kích thước trung bình
+                                    * test_id = 4: Test bẫy thuật toán / số lớn
+                                    * test_id = 5: Test tối đa giới hạn N của đề bài
+                                {cpp_instruction}
+
+                                [NỘI DUNG TÀI LIỆU CHUYÊN ĐỀ]:
+                                {raw_doc_text}
+                                """
+
+                                json_response = call_gemini_with_fallback(batch_prompt, expect_json=True)
+                                parsed_list = json.loads(json_response)
+
+                                if isinstance(parsed_list, dict) and "problems" in parsed_list:
+                                    parsed_list = parsed_list["problems"]
+
+                                if not isinstance(parsed_list, list) or len(parsed_list) == 0:
+                                    st.error("⚠️ AI không tìm thấy bài tập rõ ràng nào trong tệp này. Thầy kiểm tra lại định dạng tệp nhé!")
+                                else:
+                                    is_vis_flag = (default_vis_batch == "👁️ HIỆN (Mở cho học sinh ngay)")
+                                    cleaned_batch = []
+                                    for item in parsed_list:
+                                        cleaned_batch.append({
+                                            "ten_bai": sanitize_text(item.get("ten_bai", "Bài tập chưa đặt tên")),
+                                            "io_mode": item.get("io_mode", "Đọc/Ghi Tệp (.INP / .OUT)"),
+                                            "file_inp": sanitize_text(item.get("file_inp", "BAILAM.INP")),
+                                            "file_out": sanitize_text(item.get("file_out", "BAILAM.OUT")),
+                                            "is_visible": is_vis_flag,
+                                            "de_bai": sanitize_text(item.get("de_bai", "")),
+                                            "sample_in_1": sanitize_text(item.get("sample_in_1", "")),
+                                            "sample_out_1": sanitize_text(item.get("sample_out_1", "")),
+                                            "gen_code": sanitize_text(item.get("gen_code", "")),
+                                            "code_mau": sanitize_text(item.get("code_mau", ""))
+                                        })
+                                    st.session_state['batch_parsed_problems'] = cleaned_batch
+                                    st.success(f"🎉 Đã bóc tách thành công **{len(cleaned_batch)} bài tập** từ tệp chuyên đề!")
+                            except Exception as e:
+                                st.error(f"❌ Lỗi trong quá trình phân tích tệp chuyên đề: {e}")
+
+            # Hiển thị danh sách bài đã tách để giáo viên rà soát & lưu
+            if len(st.session_state['batch_parsed_problems']) > 0:
+                st.markdown("---")
+                st.subheader(f"📋 Danh Sách {len(st.session_state['batch_parsed_problems'])} Bài Tập Đã Tách (Xem Trước & Tinh Chỉnh)")
+                
+                indices_to_remove = []
+                for idx, bp in enumerate(st.session_state['batch_parsed_problems']):
+                    with st.expander(f"📌 Bài {idx+1}: {bp['ten_bai']} ({bp['file_inp']} / {bp['file_out']})", expanded=(idx == 0)):
+                        c_b1, c_b2, c_b3 = st.columns([2.5, 1, 0.5])
+                        with c_b1:
+                            bp['ten_bai'] = st.text_input("Tên bài:", value=bp['ten_bai'], key=f"b_title_{idx}")
+                        with c_b2:
+                            bp['file_inp'] = st.text_input("File INP:", value=bp['file_inp'], key=f"b_fin_{idx}")
+                        with c_b3:
+                            st.write(""); st.write("")
+                            if st.button("🗑️ Bỏ", key=f"b_del_{idx}", help="Loại bỏ bài này khỏi danh sách nhập"):
+                                indices_to_remove.append(idx)
+
+                        bp['de_bai'] = st.text_area("Nội dung đề bài:", value=bp['de_bai'], height=130, key=f"b_debai_{idx}")
+                        
+                        cb_s1, cb_s2 = st.columns(2)
+                        bp['sample_in_1'] = cb_s1.text_area("Input mẫu:", value=bp['sample_in_1'], height=75, key=f"b_sin_{idx}")
+                        bp['sample_out_1'] = cb_s2.text_area("Output mẫu:", value=bp['sample_out_1'], height=75, key=f"b_sout_{idx}")
+
+                        cb_c1, cb_c2 = st.columns(2)
+                        bp['code_mau'] = cb_c1.text_area("💻 Code mẫu C++ (AI giải):", value=bp['code_mau'], height=180, key=f"b_cpp_{idx}")
+                        bp['gen_code'] = cb_c2.text_area("⚙️ Code Python sinh test (AI viết):", value=bp['gen_code'], height=180, key=f"b_py_{idx}")
+
+                if len(indices_to_remove) > 0:
+                    for r_idx in sorted(indices_to_remove, reverse=True):
+                        st.session_state['batch_parsed_problems'].pop(r_idx)
+                    st.rerun()
+
+                st.markdown("---")
+                col_save_all, col_clear_all = st.columns([3, 1])
+                with col_save_all:
+                    if st.button(f"💾 LƯU TẤT CẢ {len(st.session_state['batch_parsed_problems'])} BÀI VÀO NGÂN HÀNG FIREBASE", type="primary", use_container_width=True):
+                        start_id = len(st.session_state['problems_db'])
+                        for offset, item in enumerate(st.session_state['batch_parsed_problems']):
+                            item["id"] = start_id + offset
+                            st.session_state['problems_db'].append(item)
+                        
+                        db_save("problems", st.session_state['problems_db'])
+                        count_saved = len(st.session_state['batch_parsed_problems'])
+                        st.session_state['batch_parsed_problems'] = []
+                        st.session_state['active_teacher_tab'] = 0
+                        st.toast(f"🎉 Đã lưu thành công {count_saved} bài tập vào Firebase!", icon="✅")
+                        st.rerun()
+                with col_clear_all:
+                    if st.button("🧹 HỦY DANH SÁCH", type="secondary", use_container_width=True):
+                        st.session_state['batch_parsed_problems'] = []
+                        st.rerun()
+
+        # TAB 3: QUẢN LÝ TÀI KHOẢN HỌC SINH
         elif selected_tab == "👥 Quản Lý Tài Khoản Học Sinh":
             st.markdown("### 👤 Quản Lý Tài Khoản Học Sinh Nội Bộ (Đồng Bộ Đám Mây)")
             col_add_acc, col_edit_acc = st.columns([1, 1])
@@ -918,6 +1090,7 @@ def generate_test(test_id):
             acc_data = [{"STT": idx+1, "Tên Đăng Nhập": u, "Mật Khẩu": p} for idx, (u, p) in enumerate(st.session_state['student_accounts'].items())]
             st.dataframe(acc_data, use_container_width=True)
 
+        # TAB 4: CẤU HÌNH VINH DANH & THỐNG KÊ
         else:
             st.markdown("### ⚙️ Cấu Hình Vinh Danh Trang Chủ & Báo Cáo Thống Kê")
             all_subs = db_get("submissions", st.session_state['submissions_db'])

@@ -84,28 +84,19 @@ def normalize_output(text):
     lines = [line.strip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
     return "\n".join([l for l in lines if l != ""]).strip()
 
-def call_gemini_with_fallback(prompt_content, expect_json=False):
+def call_gemini_with_fallback(prompt_content):
     """Tự động gọi Gemini với cơ chế thử lại và chuyển model dự phòng khi gặp lỗi 503"""
     client = genai.Client(api_key=GEMINI_API_KEY)
     models_to_try = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
     last_err = ""
     
-    config = {"response_mime_type": "application/json"} if expect_json else None
-    
     for model_name in models_to_try:
         for attempt in range(2):
             try:
-                if config:
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=prompt_content,
-                        config=config
-                    )
-                else:
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=prompt_content
-                    )
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt_content
+                )
                 if response and response.text:
                     return response.text
             except Exception as e:
@@ -960,7 +951,14 @@ def generate_test(test_id):
                                 {raw_doc_text}
                                 """
 
-                                json_response = call_gemini_with_fallback(batch_prompt, expect_json=True)
+                                raw_ai_text = call_gemini_with_fallback(batch_prompt)
+                                clean_json_str = raw_ai_text.strip()
+                                if "```json" in clean_json_str:
+                                    clean_json_str = clean_json_str.split("```json")[1].split("```")[0].strip()
+                                elif "```" in clean_json_str:
+                                    clean_json_str = clean_json_str.split("```")[1].split("```")[0].strip()
+                                
+                                parsed_list = json.loads(clean_json_str)
                                 parsed_list = json.loads(json_response)
 
                                 if isinstance(parsed_list, dict) and "problems" in parsed_list:

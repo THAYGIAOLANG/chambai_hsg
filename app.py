@@ -805,6 +805,10 @@ def generate_test(test_id):
             st.markdown("### ⚙️ Trình Sinh Bộ 5 Test Cục Bộ (Generator Script):")
             st.caption("Trình sinh test cục bộ bằng Python giúp sinh trực tiếp từ test nhỏ đến test $10^5$ phần tử trong bộ nhớ tạm mà không tốn dung lượng lưu trữ.")
             
+            gen_widget_key = f"gen_code_editor_{edit_id}"
+            if gen_widget_key not in st.session_state:
+                st.session_state[gen_widget_key] = curr_p.get('gen_code', '')
+
             if st.button("🤖 NHỜ AI TỰ VIẾT MÃ PYTHON SINH TEST THEO GIỚI HẠN ĐỀ", use_container_width=True):
                 if not GEMINI_API_KEY:
                     st.error("Chưa cấu hình GEMINI_API_KEY!")
@@ -826,12 +830,13 @@ def generate_test(test_id):
                             """
                             raw_text = call_gemini_with_fallback(ai_gen_prompt)
                             code_cleaned = raw_text.replace("```python", "").replace("```", "").strip()
-                            curr_p['gen_code'] = code_cleaned
+                            st.session_state[gen_widget_key] = code_cleaned
+                            st.toast("✅ AI đã viết xong mã sinh test!", icon="🤖")
                             st.rerun()
                         except Exception as e:
                             st.error(f"Lỗi gọi AI: {e}")
 
-            gen_code_val = st.text_area("Mã nguồn Python sinh Test:", value=curr_p.get('gen_code', ''), height=240)
+            gen_code_val = st.text_area("Mã nguồn Python sinh Test:", key=gen_widget_key, height=240)
 
             st.markdown("---")
             if st.button("💾 LƯU BÀI TẬP VÀO FIREBASE (VĨNH VIỄN 100%)", type="primary", use_container_width=True):
@@ -860,6 +865,8 @@ def generate_test(test_id):
                         st.toast(f"🎉 ĐÃ CẬP NHẬT THÀNH CÔNG BÀI TẬP: {ten_bai_val}!", icon="✅")
                     
                     db_save("problems", st.session_state['problems_db'])
+                    if gen_widget_key in st.session_state:
+                        del st.session_state[gen_widget_key]
                     st.session_state['active_teacher_tab'] = 0
                     st.session_state['selected_problem_id'] = -1
                     st.rerun()

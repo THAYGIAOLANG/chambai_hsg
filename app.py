@@ -107,6 +107,47 @@ def call_gemini_with_fallback(prompt_content):
                 raise e
     raise Exception(f"Các máy chủ AI đều đang bận, thầy vui lòng thử lại sau vài giây. ({last_err})")
 
+def parse_batch_problems_by_tags(raw_text, is_vis_flag):
+    """Bóc tách danh sách bài tập theo thẻ phân tách để tránh tuyệt đối lỗi ký tự \ trong LaTeX và C++"""
+    blocks = raw_text.split("===BAI_MOI===")
+    parsed_items = []
+    for blk in blocks:
+        blk = blk.strip()
+        if not blk or "[TEN_BAI]" not in blk:
+            continue
+            
+        def extract_tag(tag_name, text):
+            pattern = rf"\[{tag_name}\](.*?)\[/{tag_name}\]"
+            m = re.search(pattern, text, re.DOTALL)
+            return m.group(1).strip() if m else ""
+
+        ten_bai = extract_tag("TEN_BAI", blk)
+        io_raw = extract_tag("IO_MODE", blk)
+        io_mode = "Đọc/Ghi Tệp (.INP / .OUT)" if "Tệp" in io_raw or "INP" in io_raw else "Nhập/Xuất Chuẩn (cin / cout)"
+        file_inp = extract_tag("FILE_INP", blk) or ("BAILAM.INP" if io_mode == "Đọc/Ghi Tệp (.INP / .OUT)" else "cin")
+        file_out = extract_tag("FILE_OUT", blk) or ("BAILAM.OUT" if io_mode == "Đọc/Ghi Tệp (.INP / .OUT)" else "cout")
+        de_bai = extract_tag("DE_BAI", blk)
+        sample_in = extract_tag("SAMPLE_IN", blk)
+        sample_out = extract_tag("SAMPLE_OUT", blk)
+        
+        gen_code = extract_tag("GEN_CODE", blk).replace("```python", "").replace("```", "").strip()
+        code_mau = extract_tag("CODE_MAU", blk).replace("```cpp", "").replace("```c++", "").replace("```", "").strip()
+
+        if ten_bai:
+            parsed_items.append({
+                "ten_bai": sanitize_text(ten_bai),
+                "io_mode": io_mode,
+                "file_inp": sanitize_text(file_inp),
+                "file_out": sanitize_text(file_out),
+                "is_visible": is_vis_flag,
+                "de_bai": sanitize_text(de_bai),
+                "sample_in_1": sanitize_text(sample_in),
+                "sample_out_1": sanitize_text(sample_out),
+                "gen_code": sanitize_text(gen_code),
+                "code_mau": sanitize_text(code_mau)
+            })
+    return parsed_items
+
 # ==========================================
 # 2. XỬ LÝ LƯU TRỮ ĐÁM MÂY VĨNH VIỄN QUA FIREBASE
 # ==========================================
@@ -923,28 +964,34 @@ def generate_test(test_id):
                                     raw_doc_text = sanitize_text(topic_file.read().decode("utf-8", errors="ignore"))
 
                                 cpp_instruction = """
-                                - "code_mau": Viết mã nguồn C++ hoàn chỉnh, tối ưu (sử dụng freopen nếu đọc/ghi tệp, dùng long long tránh tràn số) giải đúng 100% bài toán.
-                                """ if auto_gen_cpp else """
-                                - "code_mau": ""
-                                """
+                                [CODE_MAU]
+                                Viết mã nguồn C++ hoàn chỉnh, tối ưu (dùng freopen nếu đọc/ghi tệp, dùng long long tránh tràn số) giải đúng 100% bài toán.
+                                [/CODE_MAU]
+                                """ if auto_gen_cpp else "[CODE_MAU][/CODE_MAU]"
 
                                 batch_prompt = f"""
                                 Bạn là chuyên gia ra đề thi Học sinh giỏi Tin học. Dưới đây là nội dung một tài liệu chuyên đề chứa NHIỀU BÀI TẬP.
-                                Hãy đọc toàn bộ tài liệu, phân tách chính xác thành TỪNG BÀI TẬP ĐƠN LẺ và trả về một MẢNG JSON (JSON Array), mỗi phần tử là một đối tượng đại diện cho 1 bài tập với đúng các trường sau:
+                                Hãy đọc toàn bộ tài liệu, phân tách chính xác thành TỪNG BÀI TẬP ĐƠN LẺ.
+                                Với MỖI BÀI TẬP, hãy xuất theo đúng khuôn mẫu thẻ phân tách sau (không dùng định dạng JSON):
 
-                                - "ten_bai": Tên bài tập (VD: "BÀI 1. TỔNG NGUYÊN TỐ (SUMPRIME)")
-                                - "io_mode": Chỉ nhận 1 trong 2 giá trị chính xác: "Đọc/Ghi Tệp (.INP / .OUT)" hoặc "Nhập/Xuất Chuẩn (cin / cout)". (Nếu đề có nhắc tên file .INP/.OUT thì chọn "Đọc/Ghi Tệp (.INP / .OUT)").
-                                - "file_inp": Tên tệp Input viết hoa (VD: "SUMPRIME.INP"), hoặc "cin" nếu nhập chuẩn.
-                                - "file_out": Tên tệp Output viết hoa (VD: "SUMPRIME.OUT"), hoặc "cout" nếu xuất chuẩn.
-                                - "de_bai": Toàn bộ nội dung mô tả đề bài, dữ liệu vào/ra, ràng buộc/giới hạn (định dạng Markdown sạch sẽ, các biểu thức toán học bọc trong dấu $...$). KHÔNG bao gồm phần ví dụ mẫu ở đây.
-                                - "sample_in_1": Dữ liệu Input của ví dụ 1 (chỉ lấy dữ liệu thô, không kèm chữ Input).
-                                - "sample_out_1": Dữ liệu Output của ví dụ 1 (chỉ lấy dữ liệu thô, không kèm chữ Output).
-                                - "gen_code": Viết mã nguồn Python thuần túy chứa hàm `generate_test(test_id)` trả về chuỗi String Input tương ứng với giới hạn của bài:
-                                    * test_id = 1: Giống hệt sample_in_1
-                                    * test_id = 2: Test biên cực tiểu / trường hợp đặc biệt
-                                    * test_id = 3: Test ngẫu nhiên kích thước trung bình
-                                    * test_id = 4: Test bẫy thuật toán / số lớn
-                                    * test_id = 5: Test tối đa giới hạn N của đề bài
+                                ===BAI_MOI===
+                                [TEN_BAI]Tên bài tập (VD: BÀI 1. TỔNG NGUYÊN TỐ)[/TEN_BAI]
+                                [IO_MODE]Đọc/Ghi Tệp (.INP / .OUT) hoặc Nhập/Xuất Chuẩn (cin / cout)[/IO_MODE]
+                                [FILE_INP]Tên file INP viết hoa (hoặc cin)[/FILE_INP]
+                                [FILE_OUT]Tên file OUT viết hoa (hoặc cout)[/FILE_OUT]
+                                [DE_BAI]
+                                Toàn bộ nội dung mô tả đề bài, dữ liệu vào/ra, giới hạn (định dạng Markdown sạch sẽ, công thức toán học bọc trong dấu $...$). Không bao gồm phần ví dụ.
+                                [/DE_BAI]
+                                [SAMPLE_IN]Dữ liệu Input của ví dụ 1 (chỉ lấy dữ liệu thô)[/SAMPLE_IN]
+                                [SAMPLE_OUT]Dữ liệu Output của ví dụ 1 (chỉ lấy dữ liệu thô)[/SAMPLE_OUT]
+                                [GEN_CODE]
+                                Viết mã nguồn Python thuần túy chứa hàm generate_test(test_id) trả về chuỗi String Input tương ứng giới hạn đề bài:
+                                - test_id = 1: Giống hệt SAMPLE_IN
+                                - test_id = 2: Test biên cực tiểu / trường hợp đặc biệt
+                                - test_id = 3: Test ngẫu nhiên trung bình
+                                - test_id = 4: Test bẫy thuật toán / số lớn
+                                - test_id = 5: Test tối đa giới hạn N của đề bài
+                                [/GEN_CODE]
                                 {cpp_instruction}
 
                                 [NỘI DUNG TÀI LIỆU CHUYÊN ĐỀ]:
@@ -952,36 +999,12 @@ def generate_test(test_id):
                                 """
 
                                 raw_ai_text = call_gemini_with_fallback(batch_prompt)
-                                clean_json_str = raw_ai_text.strip()
-                                if "```json" in clean_json_str:
-                                    clean_json_str = clean_json_str.split("```json")[1].split("```")[0].strip()
-                                elif "```" in clean_json_str:
-                                    clean_json_str = clean_json_str.split("```")[1].split("```")[0].strip()
-                                
-                                parsed_list = json.loads(clean_json_str)
-                                parsed_list = json.loads(json_response)
+                                is_vis_flag = (default_vis_batch == "👁️ HIỆN (Mở cho học sinh ngay)")
+                                cleaned_batch = parse_batch_problems_by_tags(raw_ai_text, is_vis_flag)
 
-                                if isinstance(parsed_list, dict) and "problems" in parsed_list:
-                                    parsed_list = parsed_list["problems"]
-
-                                if not isinstance(parsed_list, list) or len(parsed_list) == 0:
+                                if len(cleaned_batch) == 0:
                                     st.error("⚠️ AI không tìm thấy bài tập rõ ràng nào trong tệp này. Thầy kiểm tra lại định dạng tệp nhé!")
                                 else:
-                                    is_vis_flag = (default_vis_batch == "👁️ HIỆN (Mở cho học sinh ngay)")
-                                    cleaned_batch = []
-                                    for item in parsed_list:
-                                        cleaned_batch.append({
-                                            "ten_bai": sanitize_text(item.get("ten_bai", "Bài tập chưa đặt tên")),
-                                            "io_mode": item.get("io_mode", "Đọc/Ghi Tệp (.INP / .OUT)"),
-                                            "file_inp": sanitize_text(item.get("file_inp", "BAILAM.INP")),
-                                            "file_out": sanitize_text(item.get("file_out", "BAILAM.OUT")),
-                                            "is_visible": is_vis_flag,
-                                            "de_bai": sanitize_text(item.get("de_bai", "")),
-                                            "sample_in_1": sanitize_text(item.get("sample_in_1", "")),
-                                            "sample_out_1": sanitize_text(item.get("sample_out_1", "")),
-                                            "gen_code": sanitize_text(item.get("gen_code", "")),
-                                            "code_mau": sanitize_text(item.get("code_mau", ""))
-                                        })
                                     st.session_state['batch_parsed_problems'] = cleaned_batch
                                     st.success(f"🎉 Đã bóc tách thành công **{len(cleaned_batch)} bài tập** từ tệp chuyên đề!")
                             except Exception as e:

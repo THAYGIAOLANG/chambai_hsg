@@ -98,11 +98,29 @@ def normalize_output(text):
     return "\n".join([l for l in lines if l != ""]).strip()
 
 def get_prob_topic(prob):
+    if not isinstance(prob, dict):
+        return DEFAULT_TOPIC_NAME
     t = prob.get("chu_de", "").strip()
     return t if t else DEFAULT_TOPIC_NAME
 
 def get_prob_type(prob):
+    if not isinstance(prob, dict):
+        return "📚 Chuyên đề"
     return prob.get("loai_goi", "📚 Chuyên đề")
+
+def clear_code_callback(ed_key, trk_key):
+    """Callback xóa sạch khung code trước khi widget khởi tạo lại"""
+    st.session_state[ed_key] = ""
+    st.session_state[trk_key] = None
+
+def cleanup_temp_files(file_list):
+    """Dọn dẹp toàn bộ file biên dịch và test tạm để chống tràn RAM/Disk"""
+    for f_path in file_list:
+        if f_path and f_path not in ["cin", "cout"] and os.path.exists(f_path):
+            try:
+                os.remove(f_path)
+            except Exception:
+                pass
 
 def call_gemini_with_fallback(prompt_content):
     """Tự động gọi Gemini với cơ chế thử lại và chuyển model dự phòng khi gặp lỗi 503"""
@@ -231,14 +249,27 @@ DEFAULT_ACCOUNTS = {
     "hocsinh02": "123456"
 }
 
+def normalize_firebase_list(raw_data, default_val):
+    """Chuẩn hóa dữ liệu từ Firebase tránh lỗi lệch kiểu dict/None"""
+    if raw_data is None:
+        return default_val
+    if isinstance(raw_data, list):
+        return [item for item in raw_data if isinstance(item, dict)]
+    if isinstance(raw_data, dict):
+        return [v for _, v in sorted(raw_data.items(), key=lambda x: str(x[0])) if isinstance(v, dict)]
+    return default_val
+
 def db_get(endpoint, default_value):
     if not FIREBASE_URL:
         return default_value
     try:
         url = f"{FIREBASE_URL}/{endpoint}.json"
-        res = requests.get(url, timeout=5)
+        res = requests.get(url, timeout=6)
         if res.status_code == 200 and res.json() is not None:
-            return res.json()
+            data = res.json()
+            if endpoint == "problems":
+                return normalize_firebase_list(data, default_value)
+            return data
     except Exception:
         pass
     return default_value
@@ -248,7 +279,7 @@ def db_save(endpoint, data):
         return
     try:
         url = f"{FIREBASE_URL}/{endpoint}.json"
-        requests.put(url, json=data, timeout=5)
+        requests.put(url, json=data, timeout=6)
     except Exception as e:
         st.error(f"Lỗi đồng bộ Firebase: {e}")
 
@@ -312,12 +343,15 @@ def extract_text_from_docx(docx_file):
 def compile_cpp(cpp_file, exec_file):
     if os.name == 'nt' and not exec_file.endswith('.exe'):
         exec_file += '.exe'
-    cmd = f'g++ -O3 "{cpp_file}" -o "{exec_file}"'
+    # Sử dụng -O2 thay vì -O3 để tiết kiệm tối đa RAM khi biên dịch trên Cloud
+    cmd = f'g++ -O2 "{cpp_file}" -o "{exec_file}"'
     try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
         if result.returncode != 0:
             return False, result.stderr
         return True, ""
+    except subprocess.TimeoutExpired:
+        return False, "Quá thời gian biên dịch (Compile Timeout)."
     except Exception as e:
         return False, str(e)
 
@@ -378,14 +412,20 @@ def execute_generator_script(gen_code, test_id):
 
 def get_top_students(top_n=3):
     all_subs = db_get("submissions", st.session_state['submissions_db'])
+    if not isinstance(all_subs, dict):
+        all_subs = {}
     all_st_accounts = list(st.session_state.get('student_accounts', {}).keys())
     
     leaderboard = []
     for st_id in all_st_accounts:
         st_subs = all_subs.get(st_id, [])
+        if not isinstance(st_subs, list):
+            continue
         best_by_prob = {}
         
         for s in st_subs:
+            if not isinstance(s, dict):
+                continue
             t = s.get('ten_bai', '').strip().upper()
             sc = float(s.get('diem', 0.0))
             if t not in best_by_prob or sc > best_by_prob[t]:
@@ -411,6 +451,8 @@ def group_problems_by_topic(prob_list):
     """Gom nhóm danh sách bài tập theo Chủ đề / Đề thi"""
     grouped = {}
     for idx, p in enumerate(prob_list):
+        if not isinstance(p, dict):
+            continue
         topic = get_prob_topic(p)
         if topic not in grouped:
             grouped[topic] = {
@@ -481,7 +523,7 @@ else:
 # 5. GIAO DIỆN HỌC SINH LUYỆN ĐỀ & CHỦ ĐỀ
 # ==========================================
 if role_option == "👨‍🎓 Góc Học Sinh Luyện Đề":
-    visible_problems = [p for p in st.session_state['problems_db'] if p.get('is_visible', True) == True]
+    visible_problems = [p for p in st.session_state['problems_db'] if isinstance(p, dict) and p.get('is_visible', True) == True]
     grouped_visible = group_problems_by_topic(visible_problems)
     
     if st.session_state['user_role'] != 'student':
@@ -528,10 +570,13 @@ if role_option == "👨‍🎓 Góc Học Sinh Luyện Đề":
     else:
         student_id = st.session_state['logged_student']
         user_subs = st.session_state['submissions_db'].get(student_id, [])
+        if not isinstance(user_subs, list):
+            user_subs = []
         
-        # Tạo bảng tra cứu điểm cao nhất của học sinh hiện tại theo tên bài
         best_scores_map = {}
         for s in user_subs:
+            if not isinstance(s, dict):
+                continue
             t_key = s.get('ten_bai', '').strip().upper()
             sc_val = float(s.get('diem', 0.0))
             if t_key not in best_scores_map or sc_val > best_scores_map[t_key]:
@@ -542,7 +587,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Luyện Đề":
         with student_tab1:
             curr_topic = st.session_state.get('selected_student_topic')
             
-            # BƯỚC 1: HIỂN THỊ DANH SÁCH CHỦ ĐỀ / ĐỀ THI (NẾU CHƯA CHỌN)
             if not curr_topic or curr_topic not in grouped_visible:
                 st.subheader("📂 Chọn Đề Thi Hoặc Chuyên Đề Luyện Tập")
                 st.caption("Bấm vào một **Đề thi** hoặc **Chuyên đề** bên dưới để mở danh sách các bài tập bên trong:")
@@ -553,7 +597,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Luyện Đề":
                     t_probs = [p for _, p in t_info["items"]]
                     total_p = len(t_probs)
                     
-                    # Tính tiến độ của học sinh trong chủ đề này
                     ac_p = 0
                     sum_sc = 0.0
                     for p in t_probs:
@@ -574,17 +617,16 @@ if role_option == "👨‍🎓 Góc Học Sinh Luyện Đề":
                     with c_btn:
                         st.write("")
                         st.write("")
-                        if st.button("🚀 VÀO LÀM BÀI", key=f"enter_topic_{t_idx}", type="primary", use_container_width=True):
+                        if st.button("🚀 VÀO LÀM BÀI", key=f"enter_topic_{t_idx}", type="primary", width="stretch"):
                             st.session_state['selected_student_topic'] = t_name
                             st.session_state['current_student_problem_idx'] = 0
                             st.session_state['last_grade_result'] = None
                             st.rerun()
 
-            # BƯỚC 2: ĐÃ CHỌN CHỦ ĐỀ -> HIỂN THỊ CÁC BÀI TRONG CHỦ ĐỀ & KHUNG NỘP CODE
             else:
                 col_back, col_topic_title = st.columns([1.3, 3.7])
                 with col_back:
-                    if st.button("⬅️ CHỌN CHỦ ĐỀ KHÁC", type="secondary", use_container_width=True):
+                    if st.button("⬅️ CHỌN CHỦ ĐỀ KHÁC", type="secondary", width="stretch"):
                         st.session_state['selected_student_topic'] = None
                         st.session_state['last_grade_result'] = None
                         st.rerun()
@@ -593,7 +635,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Luyện Đề":
 
                 topic_probs = [p for _, p in grouped_visible[curr_topic]["items"]]
                 
-                # Tạo nhãn hiển thị trạng thái từng bài trong chủ đề
                 prob_labels = []
                 for idx_p, p in enumerate(topic_probs):
                     sc = best_scores_map.get(p['ten_bai'].strip().upper(), -1.0)
@@ -674,15 +715,17 @@ if role_option == "👨‍🎓 Góc Học Sinh Luyện Đề":
                     st.markdown("**Cách 2: Gõ/Dán code C++ trực tiếp:**")
                     pasted_code = st.text_area("Khung chỉnh sửa mã nguồn:", height=260, placeholder="// Nhập hoặc dán mã nguồn C++ của em vào đây...", key=editor_widget_key)
                     
-                    if st.button("🗑️ XOÁ SẠCH KHUNG CODE", type="secondary"):
-                        st.session_state[editor_widget_key] = ""
-                        st.session_state[file_tracker_key] = None
-                        st.toast("Đã xóa sạch khung mã nguồn!", icon="🧹")
-                        st.rerun()
+                    st.button(
+                        "🗑️ XOÁ SẠCH KHUNG CODE",
+                        type="secondary",
+                        on_click=clear_code_callback,
+                        args=(editor_widget_key, file_tracker_key),
+                        key=f"clear_btn_{prob_unique_key}"
+                    )
 
                 final_code_to_grade = pasted_code.strip() if pasted_code.strip() else uploaded_code_direct.strip()
 
-                btn_submit = st.button("🚀 CHẤM BÀI & PHÂN TÍCH THUẬT TOÁN", type="primary", use_container_width=True)
+                btn_submit = st.button("🚀 CHẤM BÀI & PHÂN TÍCH THUẬT TOÁN", type="primary", width="stretch")
 
                 if btn_submit:
                     if not final_code_to_grade:
@@ -690,106 +733,115 @@ if role_option == "👨‍🎓 Góc Học Sinh Luyện Đề":
                     elif not GEMINI_API_KEY:
                         st.error("⚠️ Hệ thống chưa cấu hình `GEMINI_API_KEY`!")
                     else:
+                        io_m = prob.get("io_mode", "cin/cout")
+                        f_in = prob.get("file_inp", "BAILAM.INP")
+                        f_out = prob.get("file_out", "BAILAM.OUT")
+                        gen_script = prob.get("gen_code", "")
+                        temp_files_to_clean = [
+                            "teacher.cpp", "student.cpp",
+                            "teacher.exec", "student.exec",
+                            "teacher.exec.exe", "student.exec.exe",
+                            f_in, f_out
+                        ]
+
                         with st.spinner("⏳ Đang biên dịch code mẫu và sinh bộ 5 testcase tự động..."):
-                            with open("teacher.cpp", "w", encoding="utf-8") as f:
-                                f.write(prob.get("code_mau", ""))
-                            t_compile_ok, t_err = compile_cpp("teacher.cpp", "teacher.exec")
+                            try:
+                                with open("teacher.cpp", "w", encoding="utf-8") as f:
+                                    f.write(prob.get("code_mau", ""))
+                                t_compile_ok, t_err = compile_cpp("teacher.cpp", "teacher.exec")
 
-                            with open("student.cpp", "w", encoding="utf-8") as f:
-                                f.write(final_code_to_grade)
-                            s_compile_ok, s_compile_err = compile_cpp("student.cpp", "student.exec")
-                            
-                            if not t_compile_ok:
-                                st.error("❌ **LỖI HỆ THỐNG:** Code mẫu của Giáo viên chưa biên dịch được!")
-                                st.code(t_err, language="bash")
-                            elif not s_compile_ok:
-                                st.error("❌ **LỖI BIÊN DỊCH (Compile Error):**")
-                                st.code(s_compile_err, language="bash")
-                            else:
-                                passed_tests = 0
-                                total_exec_time = 0.0
-                                test_results_detail = []
+                                with open("student.cpp", "w", encoding="utf-8") as f:
+                                    f.write(final_code_to_grade)
+                                s_compile_ok, s_compile_err = compile_cpp("student.cpp", "student.exec")
                                 
-                                io_m = prob.get("io_mode", "cin/cout")
-                                f_in = prob.get("file_inp", "BAILAM.INP")
-                                f_out = prob.get("file_out", "BAILAM.OUT")
-                                gen_script = prob.get("gen_code", "")
-
-                                for t_idx in range(1, 6):
-                                    test_inp = execute_generator_script(gen_script, t_idx)
-                                    if not test_inp:
-                                        test_inp = prob.get("sample_in_1", "")
-
-                                    _, correct_out, _ = run_testcase("teacher.exec", test_inp, io_m, f_in, f_out, time_limit=2.0)
-                                    status, student_out, exec_t = run_testcase("student.exec", test_inp, io_m, f_in, f_out, time_limit=1.0)
-                                    total_exec_time += exec_t
-                                    
-                                    is_correct = (status == "OK" and normalize_output(student_out) == normalize_output(correct_out))
-                                    if is_correct:
-                                        passed_tests += 1
-                                        test_results_detail.append({"test": f"Test {t_idx}", "status": "🟢 Đúng (AC)", "time": f"{exec_t:.1f} ms"})
-                                    else:
-                                        fail_type = "🔴 Sai kết quả (WA)" if status == "OK" else f"🔴 Lỗi chạy ({status})"
-                                        test_results_detail.append({"test": f"Test {t_idx}", "status": fail_type, "time": f"{exec_t:.1f} ms"})
-
-                                calculated_score = float(passed_tests * 2.0)
-                                status_display = f"AC ({passed_tests}/5 Test)" if passed_tests == 5 else f"WA ({passed_tests}/5 Test)"
-
-                                prompt_text = f"""
-                                Bạn là Giáo viên Tin học bồi dưỡng HSG. Nhận xét cực kỳ ngắn gọn bài C++ dưới đây:
-                                [ĐỀ BÀI]: {prob['de_bai'][:150]}
-                                [KẾT QUẢ CHẤM]: {passed_tests}/5 test đúng ({calculated_score}/10đ).
-                                [CODE HỌC SINH]:
-                                {final_code_to_grade}
-
-                                YÊU CẦU TRẢ VỀ DẠNG MARKDOWN CẮT GỌT TỐI ĐA (TỔNG KHÔNG QUÁ 3 DÒNG):
-                                * **🔍 Đánh giá thuật toán:** <Nhận xét 1 câu ngắn gọn>
-                                * **💡 Hướng tối ưu:** <Chỉ ra 1 ý tưởng thuật toán/độ phức tạp O() để đạt điểm tối đa>
-                                """
-                                
-                                clean_prompt = sanitize_text(prompt_text)
-                                feedback_text = ""
-                                try:
-                                    feedback_text = call_gemini_with_fallback(clean_prompt)
-                                except Exception:
-                                    feedback_text = "* **🔍 Đánh giá thuật toán:** Cần kiểm tra kỹ các test dữ liệu lớn.\n* **💡 Hướng tối ưu:** Tối ưu cấu trúc dữ liệu và kiểu số nguyên lớn."
-
-                                if student_id not in st.session_state['submissions_db']:
-                                    st.session_state['submissions_db'][student_id] = []
-                                    
-                                sub_record = {
-                                    "ten_bai": prob['ten_bai'],
-                                    "chu_de": curr_topic,
-                                    "diem": calculated_score,
-                                    "trang_thai": status_display,
-                                    "thoi_gian_chay": f"{total_exec_time:.2f} ms",
-                                    "exec_ms": total_exec_time,
-                                    "thoi_gian_nop": time.strftime("%H:%M:%S %d/%m/%Y"),
-                                    "nhan_xet_ai": feedback_text,
-                                    "test_details": test_results_detail,
-                                    "code_cpp": final_code_to_grade
-                                }
-                                
-                                st_subs = st.session_state['submissions_db'][student_id]
-                                target_title = prob['ten_bai'].strip().upper()
-                                existing_idx = next((i for i, s in enumerate(st_subs) if s.get('ten_bai', '').strip().upper() == target_title), -1)
-                                
-                                if existing_idx == -1:
-                                    st_subs.append(sub_record)
-                                    st.toast("🎉 Đã lưu bài nộp thành công!", icon="✅")
+                                if not t_compile_ok:
+                                    st.error("❌ **LỖI HỆ THỐNG:** Code mẫu của Giáo viên chưa biên dịch được!")
+                                    st.code(t_err, language="bash")
+                                elif not s_compile_ok:
+                                    st.error("❌ **LỖI BIÊN DỊCH (Compile Error):**")
+                                    st.code(s_compile_err, language="bash")
                                 else:
-                                    old_rec = st_subs[existing_idx]
-                                    old_score = float(old_rec.get('diem', 0.0))
-                                    old_ms = float(old_rec.get('exec_ms', 999999.0))
-                                    
-                                    if (calculated_score > old_score) or (calculated_score == old_score and total_exec_time < old_ms):
-                                        st_subs[existing_idx] = sub_record
-                                        st.toast("🎉 Đã cập nhật kỷ lục bài làm tốt nhất của em!", icon="🏆")
-                                    else:
-                                        st.toast("ℹ️ Lần nộp này chưa vượt qua điểm/thời gian bài làm tốt nhất trước đó.", icon="📌")
+                                    passed_tests = 0
+                                    total_exec_time = 0.0
+                                    test_results_detail = []
 
-                                st.session_state['last_grade_result'] = sub_record
-                                db_save("submissions", st.session_state['submissions_db'])
+                                    for t_idx in range(1, 6):
+                                        test_inp = execute_generator_script(gen_script, t_idx)
+                                        if not test_inp:
+                                            test_inp = prob.get("sample_in_1", "")
+
+                                        _, correct_out, _ = run_testcase("teacher.exec", test_inp, io_m, f_in, f_out, time_limit=2.0)
+                                        status, student_out, exec_t = run_testcase("student.exec", test_inp, io_m, f_in, f_out, time_limit=1.0)
+                                        total_exec_time += exec_t
+                                        
+                                        is_correct = (status == "OK" and normalize_output(student_out) == normalize_output(correct_out))
+                                        if is_correct:
+                                            passed_tests += 1
+                                            test_results_detail.append({"test": f"Test {t_idx}", "status": "🟢 Đúng (AC)", "time": f"{exec_t:.1f} ms"})
+                                        else:
+                                            fail_type = "🔴 Sai kết quả (WA)" if status == "OK" else f"🔴 Lỗi chạy ({status})"
+                                            test_results_detail.append({"test": f"Test {t_idx}", "status": fail_type, "time": f"{exec_t:.1f} ms"})
+
+                                    calculated_score = float(passed_tests * 2.0)
+                                    status_display = f"AC ({passed_tests}/5 Test)" if passed_tests == 5 else f"WA ({passed_tests}/5 Test)"
+
+                                    prompt_text = f"""
+                                    Bạn là Giáo viên Tin học bồi dưỡng HSG. Nhận xét cực kỳ ngắn gọn bài C++ dưới đây:
+                                    [ĐỀ BÀI]: {prob['de_bai'][:150]}
+                                    [KẾT QUẢ CHẤM]: {passed_tests}/5 test đúng ({calculated_score}/10đ).
+                                    [CODE HỌC SINH]:
+                                    {final_code_to_grade}
+
+                                    YÊU CẦU TRẢ VỀ DẠNG MARKDOWN CẮT GỌT TỐI ĐA (TỔNG KHÔNG QUÁ 3 DÒNG):
+                                    * **🔍 Đánh giá thuật toán:** <Nhận xét 1 câu ngắn gọn>
+                                    * **💡 Hướng tối ưu:** <Chỉ ra 1 ý tưởng thuật toán/độ phức tạp O() để đạt điểm tối đa>
+                                    """
+                                    
+                                    clean_prompt = sanitize_text(prompt_text)
+                                    feedback_text = ""
+                                    try:
+                                        feedback_text = call_gemini_with_fallback(clean_prompt)
+                                    except Exception:
+                                        feedback_text = "* **🔍 Đánh giá thuật toán:** Cần kiểm tra kỹ các test dữ liệu lớn.\n* **💡 Hướng tối ưu:** Tối ưu cấu trúc dữ liệu và kiểu số nguyên lớn."
+
+                                    if student_id not in st.session_state['submissions_db']:
+                                        st.session_state['submissions_db'][student_id] = []
+                                        
+                                    sub_record = {
+                                        "ten_bai": prob['ten_bai'],
+                                        "chu_de": curr_topic,
+                                        "diem": calculated_score,
+                                        "trang_thai": status_display,
+                                        "thoi_gian_chay": f"{total_exec_time:.2f} ms",
+                                        "exec_ms": total_exec_time,
+                                        "thoi_gian_nop": time.strftime("%H:%M:%S %d/%m/%Y"),
+                                        "nhan_xet_ai": feedback_text,
+                                        "test_details": test_results_detail,
+                                        "code_cpp": final_code_to_grade
+                                    }
+                                    
+                                    st_subs = st.session_state['submissions_db'][student_id]
+                                    target_title = prob['ten_bai'].strip().upper()
+                                    existing_idx = next((i for i, s in enumerate(st_subs) if s.get('ten_bai', '').strip().upper() == target_title), -1)
+                                    
+                                    if existing_idx == -1:
+                                        st_subs.append(sub_record)
+                                        st.toast("🎉 Đã lưu bài nộp thành công!", icon="✅")
+                                    else:
+                                        old_rec = st_subs[existing_idx]
+                                        old_score = float(old_rec.get('diem', 0.0))
+                                        old_ms = float(old_rec.get('exec_ms', 999999.0))
+                                        
+                                        if (calculated_score > old_score) or (calculated_score == old_score and total_exec_time < old_ms):
+                                            st_subs[existing_idx] = sub_record
+                                            st.toast("🎉 Đã cập nhật kỷ lục bài làm tốt nhất của em!", icon="🏆")
+                                        else:
+                                            st.toast("ℹ️ Lần nộp này chưa vượt qua điểm/thời gian bài làm tốt nhất trước đó.", icon="📌")
+
+                                    st.session_state['last_grade_result'] = sub_record
+                                    db_save("submissions", st.session_state['submissions_db'])
+                            finally:
+                                cleanup_temp_files(temp_files_to_clean)
 
                 if st.session_state['last_grade_result'] is not None:
                     res = st.session_state['last_grade_result']
@@ -799,7 +851,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Luyện Đề":
                     with col_res_title:
                         st.subheader("📊 BÁO CÁO KẾT QUẢ CHẤM MÁY & PHÂN TÍCH THUẬT TOÁN")
                     with col_reset_btn:
-                        if st.button("🔄 LÀM LẠI / CHẤM LẠI BÀI NÀY", type="secondary", use_container_width=True):
+                        if st.button("🔄 LÀM LẠI / CHẤM LẠI BÀI NÀY", type="secondary", width="stretch"):
                             st.session_state['last_grade_result'] = None
                             st.toast("Đã xóa báo cáo cũ. Em hãy sửa lại code và bấm CHẤM BÀI nhé!", icon="✨")
                             st.rerun()
@@ -812,7 +864,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Luyện Đề":
                     
                     if "test_details" in res:
                         st.markdown("### 📋 Kết Quả Chi Tiết 5 Bộ Test Sinh Động:")
-                        st.dataframe(res["test_details"], use_container_width=True)
+                        st.dataframe(res["test_details"], width="stretch")
 
                     st.markdown("### 💡 Gợi Ý Tối Ưu Từ Thầy AI:")
                     st.markdown(res['nhan_xet_ai'])
@@ -831,7 +883,7 @@ if role_option == "👨‍🎓 Góc Học Sinh Luyện Đề":
                     "Thời Gian Nộp Kỷ Lục": sub['thoi_gian_nop'],
                     "Trạng Thái": "🟢 Đạt điểm tối đa" if sub['diem']==10 else "🟡 Cần tối ưu thêm"
                 } for sub in user_subs]
-                st.dataframe(best_data, use_container_width=True)
+                st.dataframe(best_data, width="stretch")
                 
                 st.markdown("---")
                 st.markdown("### 📜 Chi Tiết Báo Cáo Kỷ Lục Lời Giải Tốt Nhất:")
@@ -876,11 +928,11 @@ else:
             st.markdown("### 📂 Ngân Hàng Đề Thi & Chuyên Đề Hiện Có")
             col_b1, col_b2, _ = st.columns([1.6, 1.6, 1.8])
             with col_b1:
-                if st.button("📚 NHẬP FILE ĐỀ / CHUYÊN ĐỀ MỚI", type="primary", use_container_width=True):
+                if st.button("📚 NHẬP FILE ĐỀ / CHUYÊN ĐỀ MỚI", type="primary", width="stretch"):
                     st.session_state['active_teacher_tab'] = 1
                     st.rerun()
             with col_b2:
-                if st.button("🗂️ TẠO CHỦ ĐỀ TỪ BÀI CŨ", type="secondary", use_container_width=True):
+                if st.button("🗂️ TẠO CHỦ ĐỀ TỪ BÀI CŨ", type="secondary", width="stretch"):
                     st.session_state['active_teacher_tab'] = 2
                     st.rerun()
 
@@ -901,17 +953,16 @@ else:
                     topic_status = f"🟡 MỞ MỘT PHẦN ({visible_cnt}/{total_cnt} bài)"
 
                 with st.expander(f"📁 **{t_name}** [{t_info['loai_goi']}] — {topic_status}", expanded=True):
-                    # Thanh điều khiển nhanh cho cả Chủ đề / Đề thi
                     c_act_t1, c_act_t2, c_act_t3, c_act_t4 = st.columns([1.2, 1.2, 1.6, 1.2])
                     with c_act_t1:
-                        if st.button("👁️ MỞ CẢ ĐỀ", key=f"show_all_topic_{t_idx}", use_container_width=True):
+                        if st.button("👁️ MỞ CẢ ĐỀ", key=f"show_all_topic_{t_idx}", width="stretch"):
                             for orig_idx, _ in items_in_topic:
                                 st.session_state['problems_db'][orig_idx]['is_visible'] = True
                             db_save("problems", st.session_state['problems_db'])
                             st.toast(f"Đã mở công khai toàn bộ: {t_name}!", icon="👁️")
                             st.rerun()
                     with c_act_t2:
-                        if st.button("🔒 ẨN CẢ ĐỀ", key=f"hide_all_topic_{t_idx}", use_container_width=True):
+                        if st.button("🔒 ẨN CẢ ĐỀ", key=f"hide_all_topic_{t_idx}", width="stretch"):
                             for orig_idx, _ in items_in_topic:
                                 st.session_state['problems_db'][orig_idx]['is_visible'] = False
                             db_save("problems", st.session_state['problems_db'])
@@ -920,7 +971,7 @@ else:
                     with c_act_t3:
                         new_t_rename = st.text_input("Đổi tên chủ đề:", value=t_name, key=f"rename_input_{t_idx}", label_visibility="collapsed")
                     with c_act_t4:
-                        if st.button("💾 ĐỔI TÊN", key=f"rename_btn_{t_idx}", use_container_width=True):
+                        if st.button("💾 ĐỔI TÊN", key=f"rename_btn_{t_idx}", width="stretch"):
                             if new_t_rename.strip() and new_t_rename.strip() != t_name:
                                 for orig_idx, _ in items_in_topic:
                                     st.session_state['problems_db'][orig_idx]['chu_de'] = sanitize_text(new_t_rename.strip())
@@ -929,19 +980,18 @@ else:
                                 st.rerun()
 
                     st.markdown("---")
-                    # Danh sách các bài thuộc Chủ đề / Đề thi này
                     for sub_i, (orig_idx, p) in enumerate(items_in_topic):
                         p_icon = "🟢" if p.get('is_visible', True) else "🔒"
                         col_p1, col_p2, col_p3 = st.columns([3.5, 0.8, 0.8])
                         with col_p1:
                             st.markdown(f"{p_icon} **Bài {sub_i+1}: {p['ten_bai']}** *(Input: `{p['file_inp']}` | Output: `{p['file_out']}`)*")
                         with col_p2:
-                            if st.button("✏️ Sửa", key=f"edit_p_{orig_idx}", use_container_width=True):
+                            if st.button("✏️ Sửa", key=f"edit_p_{orig_idx}", width="stretch"):
                                 st.session_state['selected_problem_id'] = orig_idx
                                 st.session_state['active_teacher_tab'] = 3
                                 st.rerun()
                         with col_p3:
-                            if st.button("🗑️ Xóa", key=f"del_p_{orig_idx}", use_container_width=True):
+                            if st.button("🗑️ Xóa", key=f"del_p_{orig_idx}", width="stretch"):
                                 removed_name = st.session_state['problems_db'][orig_idx]['ten_bai']
                                 st.session_state['problems_db'].pop(orig_idx)
                                 db_save("problems", st.session_state['problems_db'])
@@ -967,7 +1017,7 @@ else:
                 auto_gen_cpp = st.checkbox("🤖 Tự viết luôn Code C++ mẫu chuẩn", value=True)
 
             if topic_file is not None:
-                if st.button("⚡ PHÂN TÍCH & TÁCH THÀNH CÁC BÀI TRONG GÓI", type="primary", use_container_width=True):
+                if st.button("⚡ PHÂN TÍCH & TÁCH THÀNH CÁC BÀI TRONG GÓI", type="primary", width="stretch"):
                     if not GEMINI_API_KEY:
                         st.error("Chưa cấu hình GEMINI_API_KEY!")
                     else:
@@ -1068,7 +1118,7 @@ else:
                 st.markdown("---")
                 col_save_all, col_clear_all = st.columns([3, 1])
                 with col_save_all:
-                    if st.button(f"💾 LƯU GÓI ({len(st.session_state['batch_parsed_problems'])} BÀI) VÀO FIREBASE", type="primary", use_container_width=True):
+                    if st.button(f"💾 LƯU GÓI ({len(st.session_state['batch_parsed_problems'])} BÀI) VÀO FIREBASE", type="primary", width="stretch"):
                         start_id = len(st.session_state['problems_db'])
                         for offset, item in enumerate(st.session_state['batch_parsed_problems']):
                             item["id"] = start_id + offset
@@ -1081,7 +1131,7 @@ else:
                         st.toast(f"🎉 Đã lưu thành công gói {count_saved} bài tập vào Firebase!", icon="✅")
                         st.rerun()
                 with col_clear_all:
-                    if st.button("🧹 HỦY DANH SÁCH", type="secondary", use_container_width=True):
+                    if st.button("🧹 HỦY DANH SÁCH", type="secondary", width="stretch"):
                         st.session_state['batch_parsed_problems'] = []
                         st.rerun()
 
@@ -1125,7 +1175,7 @@ else:
                         selected_indices.append(idx)
 
                 st.markdown("---")
-                if st.button(f"💾 GOM {len(selected_indices)} BÀI ĐÃ CHỌN VÀO CHỦ ĐỀ / ĐỀ THI", type="primary", use_container_width=True):
+                if st.button(f"💾 GOM {len(selected_indices)} BÀI ĐÃ CHỌN VÀO CHỦ ĐỀ / ĐỀ THI", type="primary", width="stretch"):
                     if not target_topic_name or not target_topic_name.strip():
                         st.error("⚠️ Thầy vui lòng nhập tên Chủ đề / Đề thi trước khi lưu!")
                     elif len(selected_indices) == 0:
@@ -1188,7 +1238,7 @@ else:
                 if gen_widget_key not in st.session_state:
                     st.session_state[gen_widget_key] = curr_p.get('gen_code', '')
 
-                if st.button("🤖 NHỜ AI VIẾT LẠI MÃ PYTHON SINH TEST CHO BÀI NÀY", use_container_width=True):
+                if st.button("🤖 NHỜ AI VIẾT LẠI MÃ PYTHON SINH TEST CHO BÀI NÀY", width="stretch"):
                     if not GEMINI_API_KEY:
                         st.error("Chưa cấu hình GEMINI_API_KEY!")
                     else:
@@ -1217,7 +1267,7 @@ else:
 
                 gen_code_val = st.text_area("⚙️ Mã nguồn Python sinh Test:", key=gen_widget_key, height=200)
 
-                if st.button("💾 LƯU THAY ĐỔI BÀI TẬP VÀO FIREBASE", type="primary", use_container_width=True):
+                if st.button("💾 LƯU THAY ĐỔI BÀI TẬP VÀO FIREBASE", type="primary", width="stretch"):
                     st.session_state['problems_db'][edit_id] = {
                         "id": edit_id,
                         "ten_bai": sanitize_text(ten_bai_val),
@@ -1248,7 +1298,7 @@ else:
                 st.caption("➕ **Tạo Tài Khoản Học Sinh Mới:**")
                 new_u = st.text_input("Tên đăng nhập mới:", key="add_user")
                 new_p = st.text_input("Mật khẩu mới:", type="password", key="add_pass")
-                if st.button("🔑 CẤP TÀI KHOẢN MỚI", type="primary", use_container_width=True):
+                if st.button("🔑 CẤP TÀI KHOẢN MỚI", type="primary", width="stretch"):
                     if new_u and new_p:
                         clean_u = sanitize_text(new_u)
                         clean_p = sanitize_text(new_p)
@@ -1271,13 +1321,13 @@ else:
                     mod_pass = st.text_input(f"Mật khẩu mới cho ({selected_acc}):", value=current_pass)
                     c_btn1, c_btn2 = st.columns(2)
                     with c_btn1:
-                        if st.button("💾 ĐỔI MẬT KHẨU", use_container_width=True):
+                        if st.button("💾 ĐỔI MẬT KHẨU", width="stretch"):
                             st.session_state['student_accounts'][selected_acc] = sanitize_text(mod_pass)
                             db_save("accounts", st.session_state['student_accounts'])
                             st.toast(f"✅ Đã đổi mật khẩu cho {selected_acc}!", icon="🔑")
                             st.rerun()
                     with c_btn2:
-                        if st.button(f"🗑️ XÓA {selected_acc}", type="secondary", use_container_width=True):
+                        if st.button(f"🗑️ XÓA {selected_acc}", type="secondary", width="stretch"):
                             del st.session_state['student_accounts'][selected_acc]
                             db_save("accounts", st.session_state['student_accounts'])
                             st.toast(f"🗑️ Đã xóa tài khoản {selected_acc}!", icon="🎉")
@@ -1286,12 +1336,14 @@ else:
             st.markdown("---")
             st.caption("📋 **Danh sách tất cả tài khoản học sinh đã cấp:**")
             acc_data = [{"STT": idx+1, "Tên Đăng Nhập": u, "Mật Khẩu": p} for idx, (u, p) in enumerate(st.session_state['student_accounts'].items())]
-            st.dataframe(acc_data, use_container_width=True)
+            st.dataframe(acc_data, width="stretch")
 
         # TAB 5: CẤU HÌNH VINH DANH & THỐNG KÊ
         else:
             st.markdown("### ⚙️ Cấu Hình Vinh Danh Trang Chủ & Báo Cáo Thống Kê")
             all_subs = db_get("submissions", st.session_state['submissions_db'])
+            if not isinstance(all_subs, dict):
+                all_subs = {}
             st.session_state['submissions_db'] = all_subs
             
             col_cfg1, col_cfg2 = st.columns([2, 1])
@@ -1301,7 +1353,7 @@ else:
                 new_top_count = st.number_input("Số lượng Top học sinh hiển thị ở Trang chủ (Ví dụ: 2, 3, 4, 5...):", min_value=1, max_value=10, value=current_top)
             with col_cfg2:
                 st.write(""); st.write("")
-                if st.button("💾 LƯU CẤU HÌNH VINH DANH", type="primary", use_container_width=True):
+                if st.button("💾 LƯU CẤU HÌNH VINH DANH", type="primary", width="stretch"):
                     st.session_state['top_display_count'] = int(new_top_count)
                     db_save("top_count", int(new_top_count))
                     st.toast(f"✅ Đã lưu cấu hình vinh danh Top {new_top_count} Học sinh!", icon="🏆")
@@ -1320,8 +1372,12 @@ else:
                     leaderboard = []
                     for st_id in all_st_accounts:
                         st_subs = all_subs.get(st_id, [])
+                        if not isinstance(st_subs, list):
+                            continue
                         best_by_prob = {}
                         for s in st_subs:
+                            if not isinstance(s, dict):
+                                continue
                             t = s.get('ten_bai', '').strip().upper()
                             sc = float(s.get('diem', 0.0))
                             if t not in best_by_prob or sc > best_by_prob[t]:
@@ -1349,7 +1405,7 @@ else:
                         "Điểm Trung Bình": f"{item['Điểm Trung Bình']:.1f} / 10",
                         "Số Bài Đã Làm": item["Số Bài Đã Giải"]
                     } for i, item in enumerate(leaderboard)]
-                    st.dataframe(lb_display, use_container_width=True)
+                    st.dataframe(lb_display, width="stretch")
 
             elif "2. 👤 Thống kê" in stat_mode:
                 st.markdown("### 👤 Báo Cáo Kỷ Lục Lời Giải Của Học Sinh")
@@ -1359,6 +1415,8 @@ else:
                 else:
                     selected_st = st.selectbox("🎯 Chọn Học Sinh Cần Kiểm Tra:", all_student_list)
                     st_subs = all_subs.get(selected_st, [])
+                    if not isinstance(st_subs, list):
+                        st_subs = []
                     total_probs_db = len(st.session_state['problems_db'])
                     perfect_count = sum(1 for s in st_subs if s.get('diem') == 10.0)
                     avg_score = (sum(s.get('diem', 0.0) for s in st_subs) / len(st_subs)) if len(st_subs) > 0 else 0.0
@@ -1375,7 +1433,7 @@ else:
                     else:
                         st.markdown(f"#### 🏆 Kỷ Lục Lời Giải Tốt Nhất Của ({selected_st}):")
                         summary_table = [{"Chủ Đề": info.get('chu_de', DEFAULT_TOPIC_NAME), "Tên Bài Tập": info['ten_bai'], "Điểm Cao Nhất": f"{info['diem']:.1f}/10", "Thời Gian Chạy": info.get('thoi_gian_chay', 'N/A'), "Thời Gian Nộp": info.get('thoi_gian_nop', 'N/A')} for info in st_subs]
-                        st.dataframe(summary_table, use_container_width=True)
+                        st.dataframe(summary_table, width="stretch")
                         
                         st.markdown("---")
                         st.markdown(f"#### 🔍 Soi Mã Nguồn C++ Tối Ưu Của ({selected_st}):")
@@ -1400,7 +1458,9 @@ else:
                     st.markdown("---")
                     student_summary = []
                     for st_id, sub_list in all_subs.items():
-                        prob_subs = [s for s in sub_list if s.get('ten_bai') == selected_prob_title]
+                        if not isinstance(sub_list, list):
+                            continue
+                        prob_subs = [s for s in sub_list if isinstance(s, dict) and s.get('ten_bai') == selected_prob_title]
                         if len(prob_subs) > 0:
                             best_sub = prob_subs[0]
                             student_summary.append({
@@ -1417,7 +1477,7 @@ else:
                     else:
                         st.success(f"📈 **Có {len(student_summary)} học sinh đã giải thành công bài này:**")
                         table_display = [{"STT": i+1, "Tên Học Sinh": s["Học Sinh"], "Điểm Kỷ Lục": f"{s['Điểm Cao Nhất']:.1f}/10.0", "Thời Gian Chạy": s["Thời Gian Chạy"], "Thời Gian Nộp": s["Thời Gian Nộp Kỷ Lục"]} for i, s in enumerate(student_summary)]
-                        st.dataframe(table_display, use_container_width=True)
+                        st.dataframe(table_display, width="stretch")
                         
                         st.markdown("---")
                         st.markdown("### 🔍 Xem Chi Tiết Mã Nguồn C++ Kỷ Lục Của Từng Học Sinh")

@@ -122,6 +122,22 @@ def clear_code_callback(ed_key, trk_key):
     st.session_state[ed_key] = ""
     st.session_state[trk_key] = None
 
+def extract_freopen_files(cpp_code):
+    """Dò tìm tự động tên file trong lệnh freopen hoặc fopen của mã nguồn C++"""
+    inp_files = set()
+    out_files = set()
+    if not cpp_code:
+        return inp_files, out_files
+    # Bắt mẫu freopen("TEN.INP", "r", stdin) hoặc fopen("TEN.INP", "r")
+    for m in re.finditer(r'(?:freopen|fopen)\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"', cpp_code):
+        fname = m.group(1).strip()
+        mode = m.group(2).strip().lower()
+        if "r" in mode:
+            inp_files.add(fname)
+        elif "w" in mode or "a" in mode:
+            out_files.add(fname)
+    return inp_files, out_files
+
 def cleanup_temp_files(file_list):
     """Dọn dẹp toàn bộ file biên dịch và test tạm để chống tràn RAM/Disk"""
     for f_path in file_list:
@@ -395,18 +411,34 @@ def compile_cpp(cpp_file, exec_file):
     except Exception as e:
         return False, str(e)
 
-def run_testcase(exec_file, input_data, io_mode="cin/cout", file_inp="BAILAM.INP", file_out="BAILAM.OUT", time_limit=1.0):
+def run_testcase_smart(exec_file, input_data, inp_candidates, out_candidates, time_limit=1.0):
+    """
+    Chạy thực thi và đồng bộ I/O thông minh:
+    - Tự động xóa toàn bộ file Output cũ trước khi chạy.
+    - Ghi input_data vào tất cả các tên file .INP ứng viên (cấu hình đề + dò trong code) và truyền qua stdin.
+    - Đọc kết quả từ bất kỳ file .OUT nào được tạo ra; nếu không có thì tự động lấy từ stdout.
+    """
     if os.name == 'nt' and not exec_file.endswith('.exe'):
         exec_file += '.exe'
     
     cmd_run = f'"{os.path.abspath(exec_file)}"' if os.name == 'nt' else f'./{exec_file}'
-    
-    if io_mode == "Đọc/Ghi Tệp (.INP / .OUT)" and file_inp:
-        try:
-            with open(file_inp, "w", encoding="utf-8") as f:
-                f.write(input_data)
-        except Exception:
-            pass
+
+    # 1. Xóa sạch các file output cũ để tránh đọc nhầm kết quả test trước
+    for f_out in out_candidates:
+        if f_out and f_out not in ["cin", "cout"] and os.path.exists(f_out):
+            try:
+                os.remove(f_out)
+            except Exception:
+                pass
+
+    # 2. Ghi dữ liệu đầu vào vào tất cả các file input ứng viên
+    for f_in in inp_candidates:
+        if f_in and f_in not in ["cin", "cout"]:
+            try:
+                with open(f_in, "w", encoding="utf-8") as f:
+                    f.write(input_data)
+            except Exception:
+                pass
 
     try:
         start_time = time.time()
@@ -423,14 +455,22 @@ def run_testcase(exec_file, input_data, io_mode="cin/cout", file_inp="BAILAM.INP
         if process.returncode != 0:
             return "RTE", "", exec_time
 
-        output_res = process.stdout.strip()
-        
-        if io_mode == "Đọc/Ghi Tệp (.INP / .OUT)" and file_out and os.path.exists(file_out):
-            try:
-                with open(file_out, "r", encoding="utf-8") as f:
-                    output_res = f.read().strip()
-            except Exception:
-                pass
+        output_res = ""
+        # 3. Ưu tiên đọc từ file output nếu chương trình có ghi ra file
+        for f_out in out_candidates:
+            if f_out and f_out not in ["cin", "cout"] and os.path.exists(f_out):
+                try:
+                    with open(f_out, "r", encoding="utf-8") as f:
+                        content = f.read().strip()
+                        if content != "":
+                            output_res = content
+                            break
+                except Exception:
+                    pass
+
+        # 4. Fallback: nếu không có file output hoặc file rỗng, lấy từ stdout (cin/cout)
+        if output_res == "":
+            output_res = process.stdout.strip()
 
         return "OK", output_res, exec_time
 
@@ -697,7 +737,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Luyện Đề":
                     col1.caption("📥 **Input Mẫu:**"); col1.markdown(f'<div class="sample-box">{prob.get("sample_in_1", "")}</div>', unsafe_allow_html=True)
                     col2.caption("📤 **Output Mẫu:**"); col2.markdown(f'<div class="sample-box">{prob.get("sample_out_1", "")}</div>', unsafe_allow_html=True)
 
-                # Hiển thị khung xem lại Code Kỷ Lục Tốt Nhất nếu học sinh đã từng nộp bài này
                 existing_best_sub = get_best_submission_for_problem(user_subs, prob['ten_bai'])
                 if existing_best_sub and existing_best_sub.get('code_cpp', '').strip():
                     with st.expander(f"🏆 Xem lại Code C++ Kỷ Lục Tốt Nhất của em trên bài này ({existing_best_sub.get('diem', 0.0):.1f}/10đ — {existing_best_sub.get('thoi_gian_chay', '')})", expanded=False):
@@ -756,21 +795,28 @@ if role_option == "👨‍🎓 Góc Học Sinh Luyện Đề":
                     elif not GEMINI_API_KEY:
                         st.error("⚠️ Hệ thống chưa cấu hình `GEMINI_API_KEY`!")
                     else:
-                        io_m = prob.get("io_mode", "cin/cout")
-                        f_in = prob.get("file_inp", "BAILAM.INP")
-                        f_out = prob.get("file_out", "BAILAM.OUT")
+                        f_in_cfg = prob.get("file_inp", "BAILAM.INP").strip()
+                        f_out_cfg = prob.get("file_out", "BAILAM.OUT").strip()
                         gen_script = prob.get("gen_code", "")
-                        temp_files_to_clean = [
-                            "teacher.cpp", "student.cpp",
-                            "teacher.exec", "student.exec",
-                            "teacher.exec.exe", "student.exec.exe",
-                            f_in, f_out
-                        ]
+                        teacher_code_str = prob.get("code_mau", "")
+
+                        # Tự động gom toàn bộ tên file .INP / .OUT (từ cấu hình đề + dò trong code mẫu + dò trong code HS)
+                        t_in_set, t_out_set = extract_freopen_files(teacher_code_str)
+                        s_in_set, s_out_set = extract_freopen_files(final_code_to_grade)
+
+                        all_inp_candidates = {f_in_cfg} | t_in_set | s_in_set
+                        all_out_candidates = {f_out_cfg} | t_out_set | s_out_set
+
+                        temp_files_to_clean = list(
+                            {"teacher.cpp", "student.cpp", "teacher.exec", "student.exec", "teacher.exec.exe", "student.exec.exe"}
+                            | all_inp_candidates
+                            | all_out_candidates
+                        )
 
                         with st.spinner("⏳ Đang biên dịch code mẫu và sinh bộ 5 testcase tự động..."):
                             try:
                                 with open("teacher.cpp", "w", encoding="utf-8") as f:
-                                    f.write(prob.get("code_mau", ""))
+                                    f.write(teacher_code_str)
                                 t_compile_ok, t_err = compile_cpp("teacher.cpp", "teacher.exec")
 
                                 with open("student.cpp", "w", encoding="utf-8") as f:
@@ -793,17 +839,43 @@ if role_option == "👨‍🎓 Góc Học Sinh Luyện Đề":
                                         if not test_inp:
                                             test_inp = prob.get("sample_in_1", "")
 
-                                        _, correct_out, _ = run_testcase("teacher.exec", test_inp, io_m, f_in, f_out, time_limit=2.0)
-                                        status, student_out, exec_t = run_testcase("student.exec", test_inp, io_m, f_in, f_out, time_limit=1.0)
+                                        # Chạy code mẫu của Thầy (đồng bộ I/O thông minh)
+                                        t_status, correct_out, _ = run_testcase_smart("teacher.exec", test_inp, all_inp_candidates, all_out_candidates, time_limit=2.0)
+                                        
+                                        # Chạy code học sinh (đồng bộ I/O thông minh)
+                                        status, student_out, exec_t = run_testcase_smart("student.exec", test_inp, all_inp_candidates, all_out_candidates, time_limit=1.0)
                                         total_exec_time += exec_t
                                         
-                                        is_correct = (status == "OK" and normalize_output(student_out) == normalize_output(correct_out))
+                                        norm_st = normalize_output(student_out)
+                                        norm_tc = normalize_output(correct_out)
+                                        
+                                        is_correct = (status == "OK" and t_status == "OK" and norm_tc != "" and norm_st == norm_tc)
                                         if is_correct:
                                             passed_tests += 1
-                                            test_results_detail.append({"test": f"Test {t_idx}", "status": "🟢 Đúng (AC)", "time": f"{exec_t:.1f} ms"})
+                                            test_results_detail.append({
+                                                "Test": f"Test {t_idx}",
+                                                "Trạng thái": "🟢 Đúng (AC)",
+                                                "Thời gian": f"{exec_t:.1f} ms",
+                                                "Ghi chú đối chiếu": "Khớp đáp án chuẩn"
+                                            })
                                         else:
-                                            fail_type = "🔴 Sai kết quả (WA)" if status == "OK" else f"🔴 Lỗi chạy ({status})"
-                                            test_results_detail.append({"test": f"Test {t_idx}", "status": fail_type, "time": f"{exec_t:.1f} ms"})
+                                            if t_status != "OK" or norm_tc == "":
+                                                fail_type = "⚠️ Lỗi sinh đáp án chuẩn"
+                                                note_msg = "Code mẫu của đề chưa xuất kết quả"
+                                            elif status != "OK":
+                                                fail_type = f"🔴 Lỗi chạy ({status})"
+                                                note_msg = "Vượt thời gian hoặc lỗi bộ nhớ"
+                                            else:
+                                                fail_type = "🔴 Sai kết quả (WA)"
+                                                st_prev = (norm_st[:40] + "...") if len(norm_st) > 40 else (norm_st if norm_st else "<Rỗng>")
+                                                tc_prev = (norm_tc[:40] + "...") if len(norm_tc) > 40 else norm_tc
+                                                note_msg = f"Bài làm xuất: [{st_prev}] | Chuẩn: [{tc_prev}]"
+                                            test_results_detail.append({
+                                                "Test": f"Test {t_idx}",
+                                                "Trạng thái": fail_type,
+                                                "Thời gian": f"{exec_t:.1f} ms",
+                                                "Ghi chú đối chiếu": note_msg
+                                            })
 
                                     calculated_score = float(passed_tests * 2.0)
                                     status_display = f"AC ({passed_tests}/5 Test)" if passed_tests == 5 else f"WA ({passed_tests}/5 Test)"
@@ -827,7 +899,6 @@ if role_option == "👨‍🎓 Góc Học Sinh Luyện Đề":
                                     except Exception:
                                         feedback_text = "* **🔍 Đánh giá thuật toán:** Cần kiểm tra kỹ các test dữ liệu lớn.\n* **💡 Hướng tối ưu:** Tối ưu cấu trúc dữ liệu và kiểu số nguyên lớn."
 
-                                    # Đồng bộ lại dữ liệu mới nhất từ Firebase trước khi cập nhật kỷ lục
                                     latest_all_subs = db_get("submissions", st.session_state['submissions_db'])
                                     if not isinstance(latest_all_subs, dict):
                                         latest_all_subs = {}
@@ -1079,7 +1150,7 @@ else:
 
                                 cpp_instruction = """
                                 [CODE_MAU]
-                                Viết mã nguồn C++ hoàn chỉnh, tối ưu (dùng freopen nếu đọc/ghi tệp, dùng long long tránh tràn số) giải đúng 100% bài toán.
+                                Viết mã nguồn C++ hoàn chỉnh, tối ưu (sử dụng freopen theo đúng FILE_INP và FILE_OUT nếu đọc/ghi tệp, dùng long long tránh tràn số) giải đúng 100% bài toán.
                                 [/CODE_MAU]
                                 """ if auto_gen_cpp else "[CODE_MAU][/CODE_MAU]"
 
@@ -1260,7 +1331,6 @@ else:
                     with col_f_prob:
                         sel_prob_code = st.selectbox("📝 Chọn Bài tập:", [p['ten_bai'] for p in probs_in_sel], key="code_vault_prob")
 
-                    # Thu thập kỷ lục tốt nhất của tất cả học sinh trên bài sel_prob_code
                     records_for_prob = []
                     for st_id, sub_list in all_subs.items():
                         best_sub = get_best_submission_for_problem(sub_list, sel_prob_code)
@@ -1284,7 +1354,6 @@ else:
                         with col_s_info:
                             st.success(f"🏆 Có **{len(records_for_prob)} học sinh** đã nộp bài này (Xếp hạng theo Điểm cao nhất $\\rightarrow$ Chạy nhanh nhất):")
                         with col_s_zip:
-                            # Tạo tệp ZIP chứa toàn bộ code tốt nhất của các học sinh trên bài này
                             zip_buf = io.BytesIO()
                             has_any_code = False
                             with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
